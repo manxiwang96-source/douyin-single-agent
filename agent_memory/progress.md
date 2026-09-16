@@ -1,16 +1,17 @@
 # Progress
 
 ## Current task
-Implement the locked Xiaohongshu operations robot MVP and deliver green mocked tests.
+RUN_LIVE_API=1 live smokes and show Streamlit UI.
 
 ## Status
-Complete. Default pytest: 35 passed, 4 skipped (live smokes).
+Complete. Four live tests passed (not skipped). FastAPI :8000 and Streamlit :8501 are running.
 
 ## Done
-- Tutorial graph: chatbot + tools, interrupt inside generate_image/generate_video, Command resume
-- FastAPI factory without import-time live boot
-- Streamlit thin client with HITL card and st.image/st.video previews
-- Mocked tests for cheapest payloads, path rules, KB hits, HITL approve/skip, API media URLs, view model
+- test_live_chat_completion PASSED
+- test_live_cheapest_image PASSED (outputs/images/20260916T175029-9ed06932.png)
+- test_live_cheapest_video PASSED (outputs/videos/20260916T175233-6511cbe4.mp4)
+- test_live_kb_embedding_search PASSED
+- Opened Streamlit at http://127.0.0.1:8501 and sent a live chat turn
 
 ## Next
-- Optional: RUN_LIVE_API=1 cheapest smokes when network and keys are available
+- None for this task

@@ -1,0 +1,1 @@
+"""Xiaohongshu operations assistant application."""

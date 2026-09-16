@@ -7,3 +7,4 @@
 
 ## Closed
 - Importing app.main used to call app_from_env() and could hit real embeddings during pytest.
+- Streamlit cleared chat_input on submit and only redrew bubbles after POST returned, so the latest user text vanished during the wait. Fixed by echoing pending_user immediately.

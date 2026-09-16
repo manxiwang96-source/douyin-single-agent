@@ -1,17 +1,15 @@
 # Progress
 
 ## Current task
-RUN_LIVE_API=1 live smokes and show Streamlit UI.
+Fix Streamlit not showing the latest user message while the live API request is in flight.
 
 ## Status
-Complete. Four live tests passed (not skipped). FastAPI :8000 and Streamlit :8501 are running.
+Complete. Pending user text is echoed immediately; tests 38 passed, 4 skipped.
 
 ## Done
-- test_live_chat_completion PASSED
-- test_live_cheapest_image PASSED (outputs/images/20260916T175029-9ed06932.png)
-- test_live_cheapest_video PASSED (outputs/videos/20260916T175233-6511cbe4.mp4)
-- test_live_kb_embedding_search PASSED
-- Opened Streamlit at http://127.0.0.1:8501 and sent a live chat turn
+- with_pending_user() echoes the in-flight user bubble
+- streamlit_app keeps pending_user in session_state and shows a spinner during POST
+- Reloaded Streamlit on :8501
 
 ## Next
 - None for this task

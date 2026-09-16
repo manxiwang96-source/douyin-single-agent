@@ -52,3 +52,15 @@ def interrupt_card(view: dict[str, Any]) -> dict[str, Any]:
         "prompt": pending.get("prompt") if visible else "",
         "params": pending.get("params") if visible else {},
     }
+
+
+def with_pending_user(
+    messages: list[dict[str, Any]], pending: str | None
+) -> list[dict[str, Any]]:
+    text = (pending or "").strip()
+    if not text:
+        return list(messages)
+    for item in messages:
+        if item.get("role") == "user" and (item.get("content") or "") == text:
+            return list(messages)
+    return list(messages) + [{"role": "user", "content": text, "previews": []}]

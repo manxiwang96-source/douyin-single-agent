@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.view_model import absolute_media_url, build_chat_view, interrupt_card
+from ui.view_model import absolute_media_url, build_chat_view, interrupt_card, with_pending_user
 
 
 def test_absolute_media_url_joins_api_base():
@@ -67,3 +67,27 @@ def test_streamlit_app_uses_preview_widgets():
     assert "st.video(" in text
     assert "st.chat_input" in text
     assert "disabled=not view[\"chat_input_enabled\"]" in text or "disabled=" in text
+
+
+
+def test_pending_user_is_echoed_before_api_returns():
+    messages = [{"role": "assistant", "content": "卖点是什么？", "previews": []}]
+    view = with_pending_user(messages, "主要卖点是敏感肌")
+    assert view[-1] == {
+        "role": "user",
+        "content": "主要卖点是敏感肌",
+        "previews": [],
+    }
+
+
+def test_pending_user_does_not_duplicate_existing_bubble():
+    messages = [{"role": "user", "content": "主要卖点是敏感肌", "previews": []}]
+    view = with_pending_user(messages, "主要卖点是敏感肌")
+    assert view == messages
+
+
+def test_streamlit_app_echoes_pending_user():
+    text = Path("ui/streamlit_app.py").read_text(encoding="utf-8")
+    assert "pending_user" in text
+    assert "with_pending_user" in text
+    assert "正在回复" in text

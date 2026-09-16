@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 import httpx
 import streamlit as st
 
-from ui.view_model import build_chat_view, interrupt_card
+from ui.view_model import build_chat_view, interrupt_card, with_pending_user
 
 API_BASE = os.environ.get("STREAMLIT_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 
@@ -37,6 +37,13 @@ def load_thread(client: httpx.Client, thread_id: str) -> dict:
     return response.json()
 
 
+def _already_shown(messages: list[dict], pending: str) -> bool:
+    return any(
+        item.get("role") == "user" and (item.get("content") or "") == pending
+        for item in messages
+    )
+
+
 def main() -> None:
     client = _client()
     thread_id = ensure_thread(client)
@@ -48,6 +55,7 @@ def main() -> None:
         thread = load_thread(client, thread_id)
 
     view = build_chat_view(thread, API_BASE)
+    pending = st.session_state.get("pending_user")
     st.title("小红书运营助手")
     card = interrupt_card(view)
     if card["visible"]:
@@ -76,7 +84,7 @@ def main() -> None:
             ).raise_for_status()
             st.rerun()
 
-    for message in view["messages"]:
+    for message in with_pending_user(view["messages"], pending):
         with st.chat_message(message["role"]):
             if message["content"]:
                 st.markdown(message["content"])
@@ -86,16 +94,37 @@ def main() -> None:
                 elif preview["widget"] == "video":
                     st.video(preview["url"])
 
+    sending = (
+        bool(pending)
+        and view["chat_input_enabled"]
+        and not _already_shown(view["messages"], pending or "")
+    )
     user_text = st.chat_input(
         "输入产品信息或改稿需求",
-        disabled=not view["chat_input_enabled"],
+        disabled=not view["chat_input_enabled"] or sending,
     )
     if user_text:
-        client.post(
-            f"/v1/threads/{thread_id}/messages",
-            json={"content": user_text},
-        ).raise_for_status()
-        st.rerun()
+        st.session_state.pending_user = user_text
+        pending = user_text
+        if not _already_shown(view["messages"], user_text):
+            with st.chat_message("user"):
+                st.markdown(user_text)
+
+    if pending and view["chat_input_enabled"]:
+        if _already_shown(view["messages"], pending):
+            st.session_state.pop("pending_user", None)
+        else:
+            try:
+                with st.spinner("正在回复..."):
+                    client.post(
+                        f"/v1/threads/{thread_id}/messages",
+                        json={"content": pending},
+                    ).raise_for_status()
+            except httpx.HTTPError:
+                st.error("发送失败，请重试。")
+            else:
+                st.session_state.pop("pending_user", None)
+                st.rerun()
 
 
 main()

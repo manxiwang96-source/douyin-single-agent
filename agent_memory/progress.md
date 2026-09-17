@@ -1,14 +1,17 @@
 # Progress
 
 ## Current task
-Write MVP summary and logic recap document under docs/summary.
+Create a Chinese LangGraph agent knowledge-map document under docs/knowledge, with concrete links for every learning stage.
 
 ## Status
-Complete. Document plus existence/content tests added.
+Complete. The document, six-stage learning path, URL validation, and repository tests are complete.
 
 ## Done
-- docs/summary/小红书运营助手对话机器人MVP总结与逻辑复盘（1）.md
-- tests/test_summary_doc.py
+- Created docs/knowledge/LangGraph智能体创建知识地图：多智能体协作与任务编排.md.
+- Added six staged learning steps with specific LangGraph Chinese documentation URLs.
+- Added tests/test_langgraph_knowledge_doc.py for document structure and URL coverage.
+- Verified all 20 unique documentation URLs return HTTP 200 on 2026-09-17.
+- Full test suite passed: 43 passed, 4 skipped.
 
 ## Next
-- None for this task
+- None for this task.

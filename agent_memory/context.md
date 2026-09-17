@@ -19,5 +19,6 @@ Xiaohongshu operations assistant MVP: chat copywriting, cheap image generation, 
 - HITL before image/video generation
 - FastAPI factory: uvicorn app.main:create_app --factory
 
-## Recap
-- docs/summary/小红书运营助手对话机器人MVP总结与逻辑复盘（1）.md
+## Documentation
+- MVP recap: docs/summary/小红书运营助手对话机器人MVP总结与逻辑复盘（1）.md
+- LangGraph knowledge map: docs/knowledge/LangGraph智能体创建知识地图：多智能体协作与任务编排.md

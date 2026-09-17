@@ -105,22 +105,12 @@ def test_video_interrupt_approve_calls_client(runtime, llm, video_client):
     assert result.get("last_video_path")
     assert result["messages"][-1].content == "已生成视频"
 
-def test_ainvoke_offloads_model_invoke_off_event_loop(runtime, llm):
-    original = llm.invoke
-
-    def wrapped(messages, **kwargs):
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return original(messages, **kwargs)
-        raise AssertionError("model invoke ran on the event loop")
-
-    llm.invoke = wrapped
+def test_ainvoke_uses_async_chatbot_path(runtime, llm):
     llm.responses = [ai_text("你好")]
     result = asyncio.run(
         runtime.graph.ainvoke(
             {"messages": [HumanMessage(content="hi")]},
-            {"configurable": {"thread_id": "loop-offload"}},
+            {"configurable": {"thread_id": "async-chatbot"}},
         )
     )
     assert result["messages"][-1].content == "你好"

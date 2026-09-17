@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any, NotRequired, TypedDict
 
 from langchain_core.messages import AnyMessage, SystemMessage
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.utils.runnable import RunnableCallable
 
 from app.prompts import SYSTEM_PROMPT
-
-
-def invoke_model(bound, payload):
-    """Call the chat model without deadlocking if an event loop is already running."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return bound.invoke(payload)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(bound.invoke, payload).result()
 
 
 class AgentState(TypedDict):
@@ -29,18 +18,27 @@ class AgentState(TypedDict):
 
 
 def build_graph(*, llm, tools, checkpointer, store=None):
-    def chatbot(state: AgentState) -> dict[str, Any]:
+    def _chat_payload(state: AgentState):
         bound = llm.bind_tools(tools, parallel_tool_calls=False)
-        message = invoke_model(
-            bound, [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
-        )
+        payload = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+        return bound, payload
+
+    def _chat_result(message):
         tool_calls = getattr(message, "tool_calls", None) or []
         # Tutorial 4: disable parallel tool calls so interrupt/resume does not rerun tools.
         assert len(tool_calls) <= 1
         return {"messages": [message]}
 
+    def chatbot(state: AgentState) -> dict[str, Any]:
+        bound, payload = _chat_payload(state)
+        return _chat_result(bound.invoke(payload))
+
+    async def achatbot(state: AgentState) -> dict[str, Any]:
+        bound, payload = _chat_payload(state)
+        return _chat_result(await bound.ainvoke(payload))
+
     builder = StateGraph(AgentState)
-    builder.add_node("chatbot", chatbot)
+    builder.add_node("chatbot", RunnableCallable(chatbot, achatbot, name="chatbot"))
     builder.add_node("tools", ToolNode(tools, handle_tool_errors=False))
     builder.add_conditional_edges("chatbot", tools_condition)
     builder.add_edge("tools", "chatbot")

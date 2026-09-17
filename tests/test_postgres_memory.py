@@ -41,3 +41,59 @@ def test_production_runtime_requires_postgres_without_fallback(
 def test_test_runtime_stays_in_memory(runtime):
     assert isinstance(runtime.checkpointer, InMemorySaver)
     assert runtime.pg_pool is None
+
+from unittest.mock import MagicMock, patch
+
+import psycopg
+
+from app.postgres import ensure_postgres_database
+
+
+class _FakeConn:
+    def __init__(self, execute):
+        self.execute = execute
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_ensure_creates_database_when_target_is_missing():
+    created = []
+
+    def execute(sql, params=None):
+        result = MagicMock()
+        if "pg_database" in str(sql):
+            result.fetchone.return_value = None
+        elif "CREATE DATABASE" in str(sql):
+            created.append(sql)
+        return result
+
+    def fake_connect(uri, **kwargs):
+        if uri.rstrip("/").endswith("agentdemo"):
+            raise psycopg.OperationalError('connection failed: "agentdemo"')
+        return _FakeConn(execute)
+
+    with patch("app.postgres.psycopg.connect", side_effect=fake_connect):
+        ensure_postgres_database("postgresql://postgres@127.0.0.1:5432/agentdemo")
+    assert created
+    assert "agentdemo" in created[0]
+
+
+def test_ensure_reraises_when_database_already_exists():
+    def execute(sql, params=None):
+        result = MagicMock()
+        result.fetchone.return_value = (1,)
+        return result
+
+    def fake_connect(uri, **kwargs):
+        if uri.rstrip("/").endswith("agentdemo"):
+            raise psycopg.OperationalError("password authentication failed")
+        return _FakeConn(execute)
+
+    with patch("app.postgres.psycopg.connect", side_effect=fake_connect):
+        with pytest.raises(psycopg.OperationalError, match="password authentication failed"):
+            ensure_postgres_database("postgresql://postgres@127.0.0.1:5432/agentdemo")
+

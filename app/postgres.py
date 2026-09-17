@@ -39,9 +39,10 @@ def ensure_postgres_database(uri: str) -> None:
             conn.execute("SELECT 1")
         return
     except psycopg.OperationalError as exc:
-        message = str(exc).lower()
-        if "does not exist" not in message and "不存在" not in message:
-            raise
+        # Connection-time errors may not include SQLSTATE, and Windows can
+        # mojibake the localized "database does not exist" message. Inspect
+        # pg_database through the admin database instead of parsing text.
+        original = exc
     db_name = database_name(uri)
     with psycopg.connect(admin_uri(uri), autocommit=True) as conn:
         exists = conn.execute(
@@ -50,6 +51,8 @@ def ensure_postgres_database(uri: str) -> None:
         ).fetchone()
         if exists is None:
             conn.execute(f'CREATE DATABASE "{db_name}"')
+            return
+    raise original
 
 
 def make_postgres_memory(uri: str) -> PostgresMemory:

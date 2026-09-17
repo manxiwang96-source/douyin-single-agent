@@ -4,13 +4,14 @@
 Execute the locked personal-super-assistant upgrade to a verifiable delivery.
 
 ## Status
-Mocked implementation is complete (76 passed, 5 skipped). Remaining delivery gate is RUN_LIVE_ASSISTANT=1 real morning brief.
+Delivery gate passed. RUN_LIVE_ASSISTANT=1 morning brief status=sent: real MCP weekday/weather/temp and a real 163 email.
 
 ## Done
-- Updated memory-bank design/tech/implementation docs.
+- Updated memory-bank design/tech/implementation/architecture docs.
 - Settings, Postgres memory, FastMCP, email/jobs, scheduler, prompt/UI, ainvoke.
-- Default pytest fully mocked and green.
+- ChatOpenAI timeout + max_tokens; morning brief falls back if graph ainvoke times out.
+- Default pytest fully mocked.
+- Live morning brief sent a 163 email via the same chatbot+tools graph.
 
 ## Next
-- Commit the implementation in Chinese.
-- RUN_LIVE_ASSISTANT=1 immediately run morning brief with real MCP + real 163 email.
+- None for this upgrade. Later: watch gateway latency; DashScope/Gateway media remain optional smokes.

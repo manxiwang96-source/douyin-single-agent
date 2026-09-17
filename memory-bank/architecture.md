@@ -6,14 +6,14 @@
 - app/mcp_client.py: FastMCP stdio via MultiServerMCPClient.get_tools(); McpFactsProvider for weekday/weather/temp
 - mcp_servers/personal.py: get_current_datetime + get_weather (Open-Meteo, default Guangzhou)
 - app/email_client.py: SMTP_SSL smtp.163.com:465
-- app/jobs.py: run_morning_brief / run_hydrate / catch_up_jobs; idempotency namespace assistant/jobs
+- app/jobs.py: run_morning_brief / run_hydrate / catch_up_jobs; ainvoke timeout then facts-email fallback; idempotency namespace assistant/jobs
 - app/scheduler.py: APScheduler 08:00 morning brief; hydrate 10/12/14/16/18/20/22
 - app/embeddings.py / app/knowledge.py: hashing embed in tests; InMemoryStore RAG
 - app/image_client.py: Gateway POST /images/generations
 - app/video_client.py: DashScope async video-synthesis + poll
 - app/tools.py: search_kb executes immediately; generate_image/generate_video call interrupt then Command(update=...); remember_fact/recall_facts/send_email plus extra MCP tools join the same ToolNode
 - app/graph.py: tutorial graph — chatbot + tools (ToolNode) + tools_condition; custom last_image_path / last_video_path; compile(checkpointer=..., store=memory_store)
-- app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store
+- app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store; ChatOpenAI timeout + max_tokens so the gateway cannot generate forever
 - app/main.py: FastAPI factory create_app(runtime=None); ainvoke for message/resume; POST /v1/assistant/jobs/run; lifespan scheduler + catch-up
 - app/prompts.py: identity is 个人超级助理; Xiaohongshu format and search_kb only when explicitly requested
 - app/serialize.py: thread JSON with media URLs and review_media interrupt

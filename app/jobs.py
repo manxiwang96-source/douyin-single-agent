@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from app.mcp_client import DayFacts, run_coroutine
 JOBS_NAMESPACE = ("assistant", "jobs")
 HYDRATE_SLOTS = ("08", "10", "12", "14", "16", "18", "20", "22")
 MORNING_THREAD_PREFIX = "assistant-morning-brief"
+MORNING_BRIEF_GRAPH_TIMEOUT_S = 180.0
 
 
 def now_in_zone(settings, now: datetime | None = None) -> datetime:
@@ -76,7 +78,13 @@ def morning_brief_prompt(facts: DayFacts) -> str:
     )
 
 
-async def arun_morning_brief(runtime, *, force: bool = False, now: datetime | None = None) -> dict[str, Any]:
+async def arun_morning_brief(
+    runtime,
+    *,
+    force: bool = False,
+    now: datetime | None = None,
+    graph_timeout_s: float | None = None,
+) -> dict[str, Any]:
     current = now_in_zone(runtime.settings, now)
     day = current.date().isoformat()
     key = morning_brief_key(day)
@@ -85,10 +93,17 @@ async def arun_morning_brief(runtime, *, force: bool = False, now: datetime | No
     facts = await runtime.facts_provider.aget_facts(runtime.settings.assistant_city)
     sent_before = len(getattr(runtime.email_client, "sends", []) or [])
     config = {"configurable": {"thread_id": f"{MORNING_THREAD_PREFIX}-{day}"}}
-    await runtime.graph.ainvoke(
-        {"messages": [HumanMessage(content=morning_brief_prompt(facts))]},
-        config,
-    )
+    timeout = MORNING_BRIEF_GRAPH_TIMEOUT_S if graph_timeout_s is None else graph_timeout_s
+    try:
+        await asyncio.wait_for(
+            runtime.graph.ainvoke(
+                {"messages": [HumanMessage(content=morning_brief_prompt(facts))]},
+                config,
+            ),
+            timeout=timeout,
+        )
+    except Exception:
+        pass
     sent_after = getattr(runtime.email_client, "sends", []) or []
     if len(sent_after) > sent_before:
         status = "sent"
@@ -165,8 +180,21 @@ async def acatch_up_jobs(runtime, now: datetime | None = None) -> list[dict[str,
     return results
 
 
-def run_morning_brief(runtime, *, force: bool = False, now: datetime | None = None) -> dict[str, Any]:
-    return run_coroutine(arun_morning_brief(runtime, force=force, now=now))
+def run_morning_brief(
+    runtime,
+    *,
+    force: bool = False,
+    now: datetime | None = None,
+    graph_timeout_s: float | None = None,
+) -> dict[str, Any]:
+    return run_coroutine(
+        arun_morning_brief(
+            runtime,
+            force=force,
+            now=now,
+            graph_timeout_s=graph_timeout_s,
+        )
+    )
 
 
 def run_hydrate(

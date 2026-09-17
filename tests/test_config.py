@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings, project_root
+from app.runtime import LLM_MAX_TOKENS, LLM_TIMEOUT_S, make_llm
 
 
 def test_cheapest_image_params_come_from_settings():
@@ -155,3 +156,9 @@ def test_requirements_include_assistant_dependencies():
     ]
     missing = [item for item in required if item not in text]
     assert missing == [], missing
+
+def test_make_llm_sets_timeout_and_max_tokens(settings):
+    llm = make_llm(settings)
+    assert llm.max_tokens == LLM_MAX_TOKENS
+    assert llm.request_timeout == LLM_TIMEOUT_S
+    assert llm.max_retries == 1

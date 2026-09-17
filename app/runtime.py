@@ -21,11 +21,16 @@ from app.video_client import VideoClient
 
 __all__ = [
     "AppRuntime",
+    "LLM_MAX_TOKENS",
+    "LLM_TIMEOUT_S",
     "build_runtime",
     "build_test_runtime",
     "interrupt_payload",
     "make_llm",
 ]
+
+LLM_TIMEOUT_S = 90.0
+LLM_MAX_TOKENS = 1024
 
 
 @dataclass
@@ -49,6 +54,9 @@ def make_llm(settings: Settings):
         api_key=settings.openai_api_key,
         base_url=settings.openai_api_base_url,
         temperature=0.4,
+        timeout=LLM_TIMEOUT_S,
+        max_retries=1,
+        max_tokens=LLM_MAX_TOKENS,
     )
 
 

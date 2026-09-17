@@ -2,6 +2,7 @@
 
 - Python 3.11, existing venv
 - FastAPI + uvicorn: HTTP contract; message/resume via `ainvoke`; lifespan APScheduler
+- ChatOpenAI: request timeout + max_tokens; morning brief wraps graph `ainvoke` with a timeout and falls back to SMTP facts
 - Streamlit: thin chat UI titled 个人超级助理
 - LangGraph StateGraph: `chatbot` + `tools` (ToolNode) + `tools_condition`; HITL `interrupt()` inside media tools
 - Production memory: `PostgresSaver` + `PostgresStore` (`langgraph-checkpoint-postgres`, `psycopg[binary,pool]`); URI from `POSTGRES_URI`; `setup()` then `compile(checkpointer=..., store=...)`

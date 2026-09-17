@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -32,6 +33,17 @@ def test_morning_brief_fallback_when_model_skips_email(runtime, llm, email_clien
     assert result["status"] == "sent_fallback"
     assert email_client.sends
     assert "小雨" in email_client.sends[0]["body"]
+
+
+def test_morning_brief_falls_back_when_graph_times_out(runtime, email_client):
+    async def hang(*_args, **_kwargs):
+        await asyncio.sleep(5)
+
+    runtime.graph.ainvoke = hang
+    result = run_morning_brief(runtime, force=True, graph_timeout_s=0.05)
+    assert result["status"] == "sent_fallback"
+    assert email_client.sends
+    assert "星期四" in email_client.sends[0]["body"]
 
 
 def test_morning_brief_is_idempotent_without_force(runtime, llm, email_client):

@@ -17,7 +17,7 @@ v1 must run immediately (do not wait for 08:00): real MCP weekday + Guangzhou we
 1. Daily chat: natural language. No note template, no `search_kb` unless Xiaohongshu copy is requested.
 2. Explicit Xiaohongshu note: `search_kb` then 【标题】【正文】【标签】.
 3. Explicit image/video: existing HITL `interrupt()` inside `generate_image` / `generate_video`.
-4. Morning brief: MCP facts -> same graph `ainvoke` suggestions -> `send_email`. Fallback still emails the facts if the model did not send.
+4. Morning brief: MCP facts -> same graph `ainvoke` suggestions -> `send_email`. Fallback still emails the facts if the model did not send, including when `ainvoke` times out.
 5. Hydration reminders 10/12/14/16/18/20/22: template email, no LLM. 08:00 is merged into the morning brief.
 6. Manual verify: `run_morning_brief()`, `run_hydrate(slot)`, `POST /v1/assistant/jobs/run`.
 

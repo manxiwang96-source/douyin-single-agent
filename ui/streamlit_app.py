@@ -16,7 +16,7 @@ from ui.view_model import build_chat_view, interrupt_card, with_pending_user
 
 API_BASE = os.environ.get("STREAMLIT_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 
-st.set_page_config(page_title="Xiaohongshu Ops Assistant", layout="centered")
+st.set_page_config(page_title="个人超级助理", layout="centered")
 
 
 def _client() -> httpx.Client:
@@ -56,7 +56,8 @@ def main() -> None:
 
     view = build_chat_view(thread, API_BASE)
     pending = st.session_state.get("pending_user")
-    st.title("小红书运营助手")
+    st.title("个人超级助理")
+    st.caption("可写小红书笔记、配图/视频，也可发送晨间简报与喝水提醒。")
     card = interrupt_card(view)
     if card["visible"]:
         st.info("生成前需要人工审核。审核完成前不能继续发消息。")
@@ -100,7 +101,7 @@ def main() -> None:
         and not _already_shown(view["messages"], pending or "")
     )
     user_text = st.chat_input(
-        "输入产品信息或改稿需求",
+        "输入日常问题、提醒或小红书需求",
         disabled=not view["chat_input_enabled"] or sending,
     )
     if user_text:

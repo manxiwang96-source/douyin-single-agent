@@ -1,1 +1,1 @@
-"""Streamlit HTTP client for the Xiaohongshu ops assistant."""
+"""Streamlit HTTP client for the personal super assistant."""

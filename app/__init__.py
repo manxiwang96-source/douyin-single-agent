@@ -1,1 +1,1 @@
-"""Xiaohongshu operations assistant application."""
+"""Personal super assistant application."""

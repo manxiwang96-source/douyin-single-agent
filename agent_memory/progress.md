@@ -1,15 +1,14 @@
 # Progress
 
 ## Current task
-Fix Streamlit not showing the latest user message while the live API request is in flight.
+Write MVP summary and logic recap document under docs/summary.
 
 ## Status
-Complete. Pending user text is echoed immediately; tests 38 passed, 4 skipped.
+Complete. Document plus existence/content tests added.
 
 ## Done
-- with_pending_user() echoes the in-flight user bubble
-- streamlit_app keeps pending_user in session_state and shows a spinner during POST
-- Reloaded Streamlit on :8501
+- docs/summary/小红书运营助手对话机器人MVP总结与逻辑复盘（1）.md
+- tests/test_summary_doc.py
 
 ## Next
 - None for this task

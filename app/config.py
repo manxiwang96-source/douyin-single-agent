@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     streamlit_api_base: str = "http://127.0.0.1:8000"
     cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
 
+    postgres_uri: str = ""
+    assistant_city: str = "广州"
+    assistant_timezone: str = "Asia/Shanghai"
+    scheduler_enabled: bool = True
+    mcp_enabled: bool = True
+
+    smtp_host: str = "smtp.163.com"
+    smtp_port: int = 465
+    smtp_ssl: bool = True
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
+
     @field_validator(
         "embedding_base_url",
         "openai_api_base_url",
@@ -97,6 +111,14 @@ class Settings(BaseSettings):
             )
         return value
 
+    @model_validator(mode="after")
+    def default_smtp_addresses(self) -> "Settings":
+        if not self.smtp_from:
+            self.smtp_from = self.smtp_user
+        if not self.smtp_to:
+            self.smtp_to = self.smtp_user
+        return self
+
     def image_extras(self) -> dict[str, Any]:
         return _parse_json_object(self.image_request_extras)
 
@@ -125,6 +147,25 @@ class Settings(BaseSettings):
         params.update(self.video_extras())
         return params
 
+    def missing_production_fields(self) -> list[str]:
+        missing: list[str] = []
+        if not self.postgres_uri:
+            missing.append("POSTGRES_URI")
+        if not self.smtp_user:
+            missing.append("SMTP_USER")
+        if not self.smtp_password:
+            missing.append("SMTP_PASSWORD")
+        if not self.smtp_to:
+            missing.append("SMTP_TO")
+        return missing
+
+    def validate_production(self) -> None:
+        missing = self.missing_production_fields()
+        if missing:
+            raise RuntimeError(
+                "production settings missing required fields: " + ", ".join(missing)
+            )
+
     def public_config(self) -> dict[str, Any]:
         return {
             "openai_api_model": self.openai_api_model,
@@ -141,4 +182,6 @@ class Settings(BaseSettings):
             "video_aspect_param": self.video_aspect_param,
             "media_output_dir": self.media_output_dir,
             "streamlit_api_base": self.streamlit_api_base,
+            "assistant_city": self.assistant_city,
+            "assistant_timezone": self.assistant_timezone,
         }

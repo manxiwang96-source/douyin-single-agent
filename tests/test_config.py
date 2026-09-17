@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings
+from app.config import Settings, project_root
 
 
 def test_cheapest_image_params_come_from_settings():
@@ -58,3 +60,98 @@ def test_base_urls_strip_trailing_slash():
     assert settings.openai_api_base_url == "https://aitokens.website/v1"
     assert settings.embedding_base_url == "https://api.siliconflow.cn/v1"
     assert settings.dashscope_endpoint == "https://dashscope.aliyuncs.com/api/v1"
+
+
+def test_assistant_defaults():
+    settings = Settings(
+        postgres_uri="",
+        smtp_user="",
+        smtp_password="",
+        smtp_from="",
+        smtp_to="",
+        assistant_city="广州",
+        assistant_timezone="Asia/Shanghai",
+    )
+    assert settings.assistant_city == "广州"
+    assert settings.assistant_timezone == "Asia/Shanghai"
+    assert settings.smtp_host == "smtp.163.com"
+    assert settings.smtp_port == 465
+    assert settings.smtp_ssl is True
+    assert settings.scheduler_enabled is True
+    assert settings.mcp_enabled is True
+
+
+def test_smtp_from_and_to_default_to_user():
+    settings = Settings(smtp_user="user@163.com", smtp_password="x", smtp_from="", smtp_to="")
+    assert settings.smtp_from == "user@163.com"
+    assert settings.smtp_to == "user@163.com"
+
+
+def test_validate_production_requires_postgres_and_smtp():
+    settings = Settings(
+        postgres_uri="",
+        smtp_user="",
+        smtp_password="",
+        smtp_from="",
+        smtp_to="",
+    )
+    with pytest.raises(RuntimeError, match="POSTGRES_URI"):
+        settings.validate_production()
+    settings = Settings(
+        postgres_uri="postgresql://postgres@127.0.0.1:5432/agentdemo",
+        smtp_user="",
+        smtp_password="",
+        smtp_from="",
+        smtp_to="",
+    )
+    missing = settings.missing_production_fields()
+    assert "SMTP_USER" in missing
+    assert "SMTP_PASSWORD" in missing
+    assert "SMTP_TO" in missing
+
+
+def test_validate_production_passes_with_required_fields():
+    settings = Settings(
+        postgres_uri="postgresql://postgres@127.0.0.1:5432/agentdemo",
+        smtp_user="user@163.com",
+        smtp_password="secret",
+        smtp_from="",
+        smtp_to="",
+    )
+    settings.validate_production()
+    assert settings.smtp_to == "user@163.com"
+
+
+def test_env_example_has_assistant_fields_without_secrets():
+    text = Path(project_root() / ".env.example").read_text(encoding="utf-8")
+    required = [
+        "POSTGRES_URI=",
+        "ASSISTANT_CITY=",
+        "ASSISTANT_TIMEZONE=",
+        "SCHEDULER_ENABLED=",
+        "SMTP_HOST=smtp.163.com",
+        "SMTP_PORT=465",
+        "SMTP_SSL=true",
+        "SMTP_USER=",
+        "SMTP_PASSWORD=",
+        "SMTP_FROM=",
+        "SMTP_TO=",
+    ]
+    missing = [item for item in required if item not in text]
+    assert missing == [], missing
+    forbidden = ["205102", "UNhb48n7W9uWmpgx"]
+    found = [item for item in forbidden if item in text]
+    assert found == [], found
+
+
+def test_requirements_include_assistant_dependencies():
+    text = Path(project_root() / "requirements.txt").read_text(encoding="utf-8")
+    required = [
+        "langchain-mcp-adapters",
+        "mcp",
+        "psycopg[binary,pool]",
+        "langgraph-checkpoint-postgres",
+        "apscheduler",
+    ]
+    missing = [item for item in required if item not in text]
+    assert missing == [], missing

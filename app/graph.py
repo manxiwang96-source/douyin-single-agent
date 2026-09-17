@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any, NotRequired, TypedDict
 
 from langchain_core.messages import AnyMessage, SystemMessage
@@ -8,6 +10,16 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.prompts import SYSTEM_PROMPT
+
+
+def invoke_model(bound, payload):
+    """Call the chat model without deadlocking if an event loop is already running."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return bound.invoke(payload)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(bound.invoke, payload).result()
 
 
 class AgentState(TypedDict):
@@ -19,8 +31,8 @@ class AgentState(TypedDict):
 def build_graph(*, llm, tools, checkpointer, store=None):
     def chatbot(state: AgentState) -> dict[str, Any]:
         bound = llm.bind_tools(tools, parallel_tool_calls=False)
-        message = bound.invoke(
-            [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+        message = invoke_model(
+            bound, [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
         )
         tool_calls = getattr(message, "tool_calls", None) or []
         # Tutorial 4: disable parallel tool calls so interrupt/resume does not rerun tools.

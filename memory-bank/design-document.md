@@ -1,23 +1,52 @@
 # Design Document
 
 ## Scope
-Chat-based Xiaohongshu operations assistant. Users provide product facts; the agent writes notes, can generate one cheap image and one cheap video after HITL approval.
+Personal super assistant on the existing Xiaohongshu MVP. One graph, one product identity. Users chat in Streamlit; the same assistant can answer daily questions, remember facts, fetch weekday/weather via FastMCP, send SMTP email, and only write Xiaohongshu notes or generate media when the user explicitly asks.
+
+v1 must run immediately (do not wait for 08:00): real MCP weekday + Guangzhou weather/temperature, model-written 2-4 situational suggestions, and a real 163 email.
 
 ## Non-goals
-Tavily search, Xiaohongshu login/publish, time travel, shipping tutorial chapters as product features.
+- `create_react_agent`, Supervisor, or a separate Xiaohongshu agent
+- Copying langgraph.com.cn examples (MCP streamable-http weather demo, Platform Cron, custom routing)
+- Xiaohongshu login or publish
+- pgvector / migrating `data/checkpoints.sqlite`
+- Silent SQLite fallback when Postgres is down
+- Committing secrets (SMTP auth code, DB password) to git or memory-bank
 
 ## User journeys
-1. User starts a thread in Streamlit chat.
-2. If product facts are missing, assistant asks.
-3. Assistant searches KB, then writes 【标题】【正文】【标签】.
-4. If user asks for image/video, graph interrupts at review_media. User edits prompt/params and Approve/Skip.
-5. Approved media is saved under outputs/images or outputs/videos and previewed inside the assistant bubble.
+1. Daily chat: natural language. No note template, no `search_kb` unless Xiaohongshu copy is requested.
+2. Explicit Xiaohongshu note: `search_kb` then 【标题】【正文】【标签】.
+3. Explicit image/video: existing HITL `interrupt()` inside `generate_image` / `generate_video`.
+4. Morning brief: MCP facts -> same graph `ainvoke` suggestions -> `send_email`. Fallback still emails the facts if the model did not send.
+5. Hydration reminders 10/12/14/16/18/20/22: template email, no LLM. 08:00 is merged into the morning brief.
+6. Manual verify: `run_morning_brief()`, `run_hydrate(slot)`, `POST /v1/assistant/jobs/run`.
 
-## State
-MessagesState + last_image_path + last_video_path + media_items. SQLite checkpointer at data/checkpoints.sqlite.
+## State and memory
+- Graph state: MessagesState + `last_image_path` / `last_video_path`.
+- Thread short-term: production `PostgresSaver`; tests `InMemorySaver`.
+- Cross-thread long-term: production `PostgresStore`; tests in-memory store. Namespaces: `("assistant", "profile")` facts, `("assistant", "jobs")` idempotency.
+- KB RAG stays process-local `InMemoryStore` + bge-m3. No pgvector.
+
+## Graph
+START -> chatbot -> tools_condition -> tools -> chatbot
+Nodes remain only `chatbot` and `tools`. MCP tools, `send_email`, and memory tools join the existing ToolNode. `parallel_tool_calls=False`. FastAPI message/resume uses `ainvoke`.
 
 ## API contract
-GET /health, GET /v1/config, POST /v1/threads, GET /v1/threads/{id}, POST /v1/threads/{id}/messages, POST /v1/threads/{id}/resume, GET /v1/media/{images|videos}/{file}.
+Keep `/health`, `/v1/config`, `/v1/threads*`, `/v1/media/*`.
+Add `POST /v1/assistant/jobs/run` with `kind=morning_brief|hydrate`.
+
+## Configuration
+Local `.env` only for secrets. New names: `POSTGRES_URI`, `ASSISTANT_CITY`, `ASSISTANT_TIMEZONE`, `SCHEDULER_ENABLED`, `SMTP_*`. Production start fails if Postgres or SMTP is missing.
 
 ## Acceptance
-Mocked pytest green. Cheapest payloads asserted. HITL skip does not call media clients. Streamlit view model passes absolute media URLs to st.image/st.video.
+- Default pytest: fully mocked, no Postgres/SMTP/Open-Meteo, graph nodes unchanged, prompt identity is personal assistant, jobs ignore wall-clock for morning brief, 08:00 hydrate does not double-send.
+- `RUN_LIVE_ASSISTANT=1`: immediately run morning brief; real MCP weekday/weather/temp; real 163 email. This is the delivery gate.
+- Existing `RUN_LIVE_API=1` cheapest smokes remain, not the upgrade success definition.
+
+## Framework references (read only, do not paste)
+- https://langgraph.com.cn/agents/mcp/index.html
+- https://langgraph.com.cn/reference/mcp/index.html
+- https://langgraph.com.cn/concepts/memory.1.html
+- https://langgraph.com.cn/how-tos/persistence.1.html
+- https://langgraph.com.cn/concepts/persistence.1.html
+- https://langgraph.com.cn/agents/context/index.html

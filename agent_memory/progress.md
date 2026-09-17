@@ -1,14 +1,16 @@
 # Progress
 
 ## Current task
-Write the locked personal-super-assistant upgrade package as a Chinese modification document under docs/modify.
+Execute the locked personal-super-assistant upgrade to a verifiable delivery.
 
 ## Status
-Complete. Document and structure test are in place; implementation of the assistant is not started.
+In progress. memory-bank design/tech/implementation docs updated; code implementation next.
 
 ## Done
-- Created docs/modify/个人超级助理改造方案.md with identity, graph constraints, memory/MCP/email/scheduler decisions, live acceptance, and reference-only langgraph.com.cn links.
-- Added tests/test_assistant_modify_doc.py to lock required snippets and forbid committed secrets.
+- Locked upgrade package and its structure test.
+- Updated memory-bank design-document.md, tech-stack.md, implementation-plan.md.
 
 ## Next
-- Execute the upgrade package starting from memory-bank design/tech/implementation updates, then code.
+- Settings + .env.example + requirements
+- Postgres memory, FastMCP, email/jobs, scheduler, prompt/UI
+- Mock pytest green, then RUN_LIVE_ASSISTANT=1 live morning brief

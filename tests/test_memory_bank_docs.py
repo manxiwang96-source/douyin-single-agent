@@ -51,3 +51,22 @@ def test_memory_bank_docs_do_not_commit_secrets():
     forbidden = ["205102", "UNhb48n7W9uWmpgx"]
     found = [item for item in forbidden if item in text]
     assert found == [], f"secrets leaked: {found}"
+
+def test_architecture_records_assistant_runtime():
+    text = _read(ROOT / "memory-bank" / "architecture.md")
+    required = [
+        "个人超级助理",
+        "PostgresSaver",
+        "PostgresStore",
+        "InMemorySaver",
+        "FastMCP",
+        "send_email",
+        "run_morning_brief",
+        "POST /v1/assistant/jobs/run",
+        "RUN_LIVE_ASSISTANT=1",
+        "chatbot",
+        "tools",
+    ]
+    missing = [item for item in required if item not in text]
+    assert missing == [], f"missing architecture snippets: {missing}"
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.config import Settings
+from app.jobs import arun_hydrate, arun_morning_brief, acatch_up_jobs
 from app.media_paths import MediaPathError, safe_media_file
 from app.runtime import AppRuntime, build_runtime
 from app.serialize import serialize_thread
@@ -30,9 +32,30 @@ class ThreadCreated(BaseModel):
     id: str
 
 
+class JobRunIn(BaseModel):
+    kind: str
+    slot: str | None = None
+    force: bool = False
+
+
 def create_app(runtime: AppRuntime | None = None) -> FastAPI:
     runtime = runtime or build_runtime()
-    app = FastAPI(title="Xiaohongshu Ops MVP")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        scheduler = None
+        if runtime.settings.scheduler_enabled:
+            from app.scheduler import start_scheduler
+
+            scheduler = start_scheduler(runtime)
+            await acatch_up_jobs(runtime)
+        try:
+            yield
+        finally:
+            if scheduler is not None:
+                scheduler.shutdown(wait=False)
+
+    app = FastAPI(title="个人超级助理", lifespan=lifespan)
     app.state.runtime = runtime
     app.state.threads = set()
     app.add_middleware(
@@ -52,9 +75,9 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="thread not found")
         known.add(thread_id)
 
-    def _run(thread_id: str, payload) -> dict[str, Any]:
+    async def _arun(thread_id: str, payload) -> dict[str, Any]:
         config = {"configurable": {"thread_id": thread_id}}
-        runtime.graph.invoke(payload, config)
+        await runtime.graph.ainvoke(payload, config)
         return serialize_thread(runtime, thread_id)
 
     @app.get("/health")
@@ -77,15 +100,15 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         return serialize_thread(runtime, thread_id)
 
     @app.post("/v1/threads/{thread_id}/messages")
-    def post_message(thread_id: str, body: MessageIn) -> dict[str, Any]:
+    async def post_message(thread_id: str, body: MessageIn) -> dict[str, Any]:
         _require_thread(thread_id)
         current = serialize_thread(runtime, thread_id)
         if current.get("status") == "interrupted":
             raise HTTPException(status_code=409, detail="thread is waiting for review")
-        return _run(thread_id, {"messages": [HumanMessage(content=body.content)]})
+        return await _arun(thread_id, {"messages": [HumanMessage(content=body.content)]})
 
     @app.post("/v1/threads/{thread_id}/resume")
-    def resume_thread(thread_id: str, body: ResumeIn) -> dict[str, Any]:
+    async def resume_thread(thread_id: str, body: ResumeIn) -> dict[str, Any]:
         _require_thread(thread_id)
         current = serialize_thread(runtime, thread_id)
         if current.get("status") != "interrupted":
@@ -95,7 +118,21 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             "prompt": body.prompt,
             "params": body.params or {},
         }
-        return _run(thread_id, Command(resume=decision))
+        return await _arun(thread_id, Command(resume=decision))
+
+    @app.post("/v1/assistant/jobs/run")
+    async def run_job(body: JobRunIn) -> dict[str, Any]:
+        kind = (body.kind or "").strip()
+        if kind == "morning_brief":
+            return await arun_morning_brief(runtime, force=body.force)
+        if kind == "hydrate":
+            if not body.slot:
+                raise HTTPException(status_code=400, detail="slot is required for hydrate")
+            try:
+                return await arun_hydrate(runtime, body.slot, force=body.force)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="kind must be morning_brief or hydrate")
 
     @app.get("/v1/media/{kind}/{file_name}")
     def get_media(kind: str, file_name: str):

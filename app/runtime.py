@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.store.memory import InMemoryStore
 
 from app.config import Settings, project_root
 from app.embeddings import make_openai_embeddings
 from app.graph import build_graph, interrupt_payload
 from app.image_client import ImageClient
 from app.knowledge import index_knowledge_dir, make_store
+from app.mcp_client import McpFactsProvider, StaticFactsProvider, default_test_facts, load_mcp_tools
 from app.media_paths import ensure_media_dirs, resolve_media_root
+from app.postgres import make_postgres_memory
 from app.tools import build_tools
 from app.video_client import VideoClient
 
@@ -24,7 +25,6 @@ __all__ = [
     "build_test_runtime",
     "interrupt_payload",
     "make_llm",
-    "make_sqlite_checkpointer",
 ]
 
 
@@ -34,10 +34,13 @@ class AppRuntime:
     media_root: Path
     graph: Any
     store: Any
-    image_client: ImageClient
-    video_client: VideoClient
+    memory_store: Any
+    image_client: Any
+    video_client: Any
     checkpointer: Any
-    sqlite_conn: sqlite3.Connection | None = None
+    email_client: Any
+    facts_provider: Any
+    pg_pool: Any = None
 
 
 def make_llm(settings: Settings):
@@ -49,30 +52,21 @@ def make_llm(settings: Settings):
     )
 
 
-def make_sqlite_checkpointer(
-    root: Path | None = None,
-) -> tuple[SqliteSaver, sqlite3.Connection]:
-    root = (root or project_root()).resolve()
-    data_dir = root / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / "checkpoints.sqlite"
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    saver = SqliteSaver(conn)
-    saver.setup()
-    return saver, conn
-
-
 def build_runtime(
     settings: Settings | None = None,
     *,
     embeddings=None,
     llm=None,
-    image_client: ImageClient | None = None,
-    video_client: VideoClient | None = None,
+    image_client=None,
+    video_client=None,
     checkpointer=None,
     knowledge_dir: Path | None = None,
     media_root: Path | None = None,
-    sqlite_conn: sqlite3.Connection | None = None,
+    memory_store=None,
+    extra_tools=None,
+    email_client=None,
+    facts_provider=None,
+    pg_pool=None,
 ) -> AppRuntime:
     settings = settings or Settings()
     root = project_root()
@@ -87,28 +81,62 @@ def build_runtime(
     if indexed == 0:
         raise RuntimeError(f"no knowledge files indexed from {knowledge_dir}")
 
+    production = checkpointer is None
+    if production:
+        settings.validate_production()
+        memory = make_postgres_memory(settings.postgres_uri)
+        checkpointer = memory.checkpointer
+        memory_store = memory.store
+        pg_pool = memory.pool
+    elif memory_store is None:
+        memory_store = InMemoryStore()
+
     image_client = image_client or ImageClient(settings, media_root)
     video_client = video_client or VideoClient(settings, media_root)
     llm = llm or make_llm(settings)
+
+    if extra_tools is None and settings.mcp_enabled:
+        extra_tools = load_mcp_tools(settings)
+    extra_tools = list(extra_tools or [])
+
+    if email_client is None:
+        from app.email_client import SmtpEmailClient
+
+        email_client = SmtpEmailClient(settings)
+    if facts_provider is None:
+        if extra_tools:
+            facts_provider = McpFactsProvider(extra_tools, default_city=settings.assistant_city)
+        else:
+            facts_provider = StaticFactsProvider(default_test_facts(settings.assistant_city))
+
     tools = build_tools(
         store=store,
         image_client=image_client,
         video_client=video_client,
         settings=settings,
         media_root=media_root,
+        memory_store=memory_store,
+        email_client=email_client,
+        extra_tools=extra_tools,
     )
-    if checkpointer is None:
-        checkpointer, sqlite_conn = make_sqlite_checkpointer(root)
-    graph = build_graph(llm=llm, tools=tools, checkpointer=checkpointer)
+    graph = build_graph(
+        llm=llm,
+        tools=tools,
+        checkpointer=checkpointer,
+        store=memory_store,
+    )
     return AppRuntime(
         settings=settings,
         media_root=media_root,
         graph=graph,
         store=store,
+        memory_store=memory_store,
         image_client=image_client,
         video_client=video_client,
         checkpointer=checkpointer,
-        sqlite_conn=sqlite_conn,
+        email_client=email_client,
+        facts_provider=facts_provider,
+        pg_pool=pg_pool,
     )
 
 
@@ -120,6 +148,10 @@ def build_test_runtime(
     video_client,
     media_root: Path,
     knowledge_dir: Path,
+    extra_tools=None,
+    email_client=None,
+    facts_provider=None,
+    memory_store=None,
 ) -> AppRuntime:
     return build_runtime(
         settings,
@@ -130,4 +162,8 @@ def build_test_runtime(
         checkpointer=InMemorySaver(),
         knowledge_dir=knowledge_dir,
         media_root=media_root,
+        memory_store=memory_store,
+        extra_tools=extra_tools,
+        email_client=email_client,
+        facts_provider=facts_provider,
     )

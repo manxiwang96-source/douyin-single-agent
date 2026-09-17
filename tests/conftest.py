@@ -7,7 +7,14 @@ import pytest
 from app.config import Settings, project_root
 from app.embeddings import EmbeddingsAdapter, hashing_embed_documents
 from app.runtime import build_test_runtime
-from tests.fakes import FakeImageClient, FakeVideoClient, ScriptedLLM
+from tests.fakes import (
+    FakeEmailClient,
+    FakeImageClient,
+    FakeVideoClient,
+    ScriptedLLM,
+    fake_datetime_weather_tools,
+    static_facts_provider,
+)
 
 
 @pytest.fixture
@@ -34,6 +41,18 @@ def settings() -> Settings:
         embedding_api_key="test-embed",
         embedding_dims=64,
         media_output_dir="outputs",
+        postgres_uri="",
+        assistant_city="广州",
+        assistant_timezone="Asia/Shanghai",
+        scheduler_enabled=False,
+        mcp_enabled=False,
+        smtp_host="smtp.example.test",
+        smtp_port=465,
+        smtp_ssl=True,
+        smtp_user="test@example.com",
+        smtp_password="test-pass",
+        smtp_from="test@example.com",
+        smtp_to="test@example.com",
     )
 
 
@@ -73,7 +92,12 @@ def video_client(media_root: Path) -> FakeVideoClient:
 
 
 @pytest.fixture
-def runtime(settings, embeddings, llm, image_client, video_client, media_root, knowledge_dir):
+def email_client() -> FakeEmailClient:
+    return FakeEmailClient()
+
+
+@pytest.fixture
+def runtime(settings, embeddings, llm, image_client, video_client, media_root, knowledge_dir, email_client):
     return build_test_runtime(
         settings,
         embeddings,
@@ -82,4 +106,7 @@ def runtime(settings, embeddings, llm, image_client, video_client, media_root, k
         video_client,
         media_root,
         knowledge_dir,
+        extra_tools=fake_datetime_weather_tools(),
+        email_client=email_client,
+        facts_provider=static_facts_provider(settings.assistant_city),
     )

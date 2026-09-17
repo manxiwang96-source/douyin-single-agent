@@ -16,7 +16,7 @@ class AgentState(TypedDict):
     last_video_path: NotRequired[str | None]
 
 
-def build_graph(*, llm, tools, checkpointer):
+def build_graph(*, llm, tools, checkpointer, store=None):
     def chatbot(state: AgentState) -> dict[str, Any]:
         bound = llm.bind_tools(tools, parallel_tool_calls=False)
         message = bound.invoke(
@@ -33,7 +33,7 @@ def build_graph(*, llm, tools, checkpointer):
     builder.add_conditional_edges("chatbot", tools_condition)
     builder.add_edge("tools", "chatbot")
     builder.add_edge(START, "chatbot")
-    return builder.compile(checkpointer=checkpointer)
+    return builder.compile(checkpointer=checkpointer, store=store)
 
 
 def interrupt_payload(snapshot) -> dict[str, Any] | None:

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
 
 from app.media_paths import allocate_media_path
+from app.mcp_client import DayFacts, StaticFactsProvider, default_test_facts
 
 TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -26,7 +28,7 @@ class ScriptedLLM:
         self.bind_kwargs = kwargs
         return self
 
-    def invoke(self, messages):
+    def invoke(self, messages, **kwargs):
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("ScriptedLLM has no remaining responses")
@@ -34,6 +36,9 @@ class ScriptedLLM:
         if callable(item):
             item = item(messages)
         return item
+
+    async def ainvoke(self, messages, **kwargs):
+        return self.invoke(messages, **kwargs)
 
 
 def ai_text(content: str) -> AIMessage:
@@ -71,3 +76,48 @@ class FakeVideoClient:
         path = allocate_media_path(self.media_root, "videos", ".mp4")
         path.write_bytes(DUMMY_MP4)
         return path
+
+
+class FakeEmailClient:
+    def __init__(self, to: str = "test@example.com"):
+        self.to = to
+        self.sends: list[dict[str, Any]] = []
+
+    def send(self, *, subject: str, body: str, to: str | None = None) -> dict[str, Any]:
+        record = {
+            "ok": True,
+            "subject": subject,
+            "body": body,
+            "to": to or self.to,
+        }
+        self.sends.append(record)
+        return record
+
+
+def fake_datetime_weather_tools(facts: DayFacts | None = None) -> list:
+    facts = facts or default_test_facts()
+
+    @tool
+    def get_current_datetime() -> dict[str, Any]:
+        """Return today's weekday and the current local datetime."""
+        return {
+            "iso": facts.iso,
+            "date": facts.date,
+            "weekday": facts.weekday,
+            "timezone": "Asia/Shanghai",
+        }
+
+    @tool
+    def get_weather(city: str = "广州") -> dict[str, Any]:
+        """Return the current weather and temperature for a city."""
+        return {
+            "city": city or facts.city,
+            "weather": facts.weather,
+            "temperature_c": facts.temperature_c,
+        }
+
+    return [get_current_datetime, get_weather]
+
+
+def static_facts_provider(city: str = "广州") -> StaticFactsProvider:
+    return StaticFactsProvider(default_test_facts(city))

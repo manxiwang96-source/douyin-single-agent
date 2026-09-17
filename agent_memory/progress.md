@@ -1,17 +1,14 @@
 # Progress
 
 ## Current task
-Create a Chinese LangGraph agent knowledge-map document under docs/knowledge, with concrete links for every learning stage.
+Write the locked personal-super-assistant upgrade package as a Chinese modification document under docs/modify.
 
 ## Status
-Complete. The document, six-stage learning path, URL validation, and repository tests are complete.
+Complete. Document and structure test are in place; implementation of the assistant is not started.
 
 ## Done
-- Created docs/knowledge/LangGraph智能体创建知识地图：多智能体协作与任务编排.md.
-- Added six staged learning steps with specific LangGraph Chinese documentation URLs.
-- Added tests/test_langgraph_knowledge_doc.py for document structure and URL coverage.
-- Verified all 20 unique documentation URLs return HTTP 200 on 2026-09-17.
-- Full test suite passed: 43 passed, 4 skipped.
+- Created docs/modify/个人超级助理改造方案.md with identity, graph constraints, memory/MCP/email/scheduler decisions, live acceptance, and reference-only langgraph.com.cn links.
+- Added tests/test_assistant_modify_doc.py to lock required snippets and forbid committed secrets.
 
 ## Next
-- None for this task.
+- Execute the upgrade package starting from memory-bank design/tech/implementation updates, then code.

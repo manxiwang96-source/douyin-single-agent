@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
@@ -13,9 +14,29 @@ from psycopg_pool import ConnectionPool
 _SAFE_DB = re.compile(r"^[A-Za-z0-9_]+$")
 
 
+class ThreadedAsyncCheckpointMixin:
+    """Expose async checkpointer methods by running the sync API in a worker thread."""
+
+    async def aget_tuple(self, config):
+        return await asyncio.to_thread(self.get_tuple, config)
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        return await asyncio.to_thread(self.put, config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(self, config, writes, task_id, task_path=""):
+        return await asyncio.to_thread(self.put_writes, config, writes, task_id, task_path)
+
+    async def adelete_thread(self, thread_id):
+        return await asyncio.to_thread(self.delete_thread, thread_id)
+
+
+class AppPostgresSaver(ThreadedAsyncCheckpointMixin, PostgresSaver):
+    """Production saver compatible with graph.ainvoke."""
+
+
 @dataclass
 class PostgresMemory:
-    checkpointer: PostgresSaver
+    checkpointer: AppPostgresSaver
     store: PostgresStore
     pool: ConnectionPool
 
@@ -63,6 +84,7 @@ def make_postgres_memory(uri: str) -> PostgresMemory:
         conninfo=uri,
         min_size=1,
         max_size=10,
+        open=True,
         kwargs={
             "autocommit": True,
             "prepare_threshold": 0,
@@ -70,7 +92,7 @@ def make_postgres_memory(uri: str) -> PostgresMemory:
         },
     )
     pool.wait(timeout=10)
-    checkpointer = PostgresSaver(pool)
+    checkpointer = AppPostgresSaver(pool)
     store = PostgresStore(pool)
     checkpointer.setup()
     store.setup()

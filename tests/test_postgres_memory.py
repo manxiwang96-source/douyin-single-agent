@@ -97,3 +97,19 @@ def test_ensure_reraises_when_database_already_exists():
         with pytest.raises(psycopg.OperationalError, match="password authentication failed"):
             ensure_postgres_database("postgresql://postgres@127.0.0.1:5432/agentdemo")
 
+import asyncio
+
+from langgraph.checkpoint.memory import InMemorySaver
+
+from app.postgres import ThreadedAsyncCheckpointMixin
+
+
+class _ThreadedMemorySaver(ThreadedAsyncCheckpointMixin, InMemorySaver):
+    pass
+
+
+def test_threaded_async_mixin_get_tuple_does_not_raise():
+    saver = _ThreadedMemorySaver()
+    result = asyncio.run(saver.aget_tuple({"configurable": {"thread_id": "t-async"}}))
+    assert result is None
+

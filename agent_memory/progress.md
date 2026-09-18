@@ -1,17 +1,15 @@
 # Progress
 
 ## Current task
-Execute the locked personal-super-assistant upgrade to a verifiable delivery.
+Write recap document: 个人超级助手总结与逻辑复盘（2）.
 
 ## Status
-Delivery gate passed. RUN_LIVE_ASSISTANT=1 morning brief status=sent: real MCP weekday/weather/temp and a real 163 email.
+Document landed with plain-language headings. Default pytest is fully mocked and green. Chinese commit created.
 
 ## Done
-- Updated memory-bank design/tech/implementation/architecture docs.
-- Settings, Postgres memory, FastMCP, email/jobs, scheduler, prompt/UI, ainvoke.
-- ChatOpenAI timeout + max_tokens; morning brief falls back if graph ainvoke times out.
-- Default pytest fully mocked.
-- Live morning brief sent a 163 email via the same chatbot+tools graph.
+- Added docs/summary/个人超级助手总结与逻辑复盘（2）.md mapping this repo to langgraph.com.cn pages.
+- Added tests/test_assistant_summary_doc.py for title, locked keywords, URLs, 人话 headings, and secret leak checks.
+- Previous upgrade delivery gate still stands: RUN_LIVE_ASSISTANT=1 morning brief status=sent.
 
 ## Next
-- None for this upgrade. Later: watch gateway latency; DashScope/Gateway media remain optional smokes.
+- None for this documentation task. Do not treat default pytest green as a new live-email delivery.

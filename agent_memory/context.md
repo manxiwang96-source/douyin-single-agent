@@ -23,4 +23,5 @@ Personal super assistant. Xiaohongshu copy/image/video remain capabilities on th
 
 ## Documentation
 - Upgrade package: docs/modify/个人超级助理改造方案.md
-- MVP recap remains historical baseline under docs/summary/
+- MVP recap remains historical baseline: docs/summary/小红书运营助手对话机器人MVP总结与逻辑复盘（1）.md
+- Assistant recap: docs/summary/个人超级助手总结与逻辑复盘（2）.md

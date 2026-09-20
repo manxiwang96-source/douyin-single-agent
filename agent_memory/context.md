@@ -13,7 +13,7 @@ v1: one active instance per user. Graph stays `START -> chatbot -> tools_conditi
 
 ## Locked v1 Dify loop
 - Unique contract: Dify app `douyin-lead-discovery` (Community `1.17.0`).
-- Transport: `difyctl` + existing ToolNode. One product tool: `discover_douyin_leads`.
+- Transport for this iteration: **published workflow Service API key** (`POST /v1/workflows/run`) from the existing ToolNode. `difyctl` is paused (Explorer cannot open the install dir; OpenAPI login 404). Design doc still names difyctl as default and HTTP+API key as fallback until rewritten.
 - `no_send=false` = real send at Dify's first `POST /v1/commands/run`. list-comment / list-message only fetch results.
 - Do not dual-call C's CLI. Do not add MCP or a Dify graph node. Do not use `create_react_agent`.
 - Config names: `DIFY_LEAD_APP_ID`, `DIFY_BASE_URL`, `DIFYCTL_BIN`. Old `DIFY_COMMENT_APP_ID` / `DIFY_DM_APP_ID` and tools `reply_douyin_comment` / `send_douyin_dm` are retired.
@@ -28,8 +28,7 @@ v1: one active instance per user. Graph stays `START -> chatbot -> tools_conditi
 - SHA-256 matches official release asset `difyctl-v0.2.0-alpha-windows-x64.exe` on tag `1.17.0`
 - User PATH: `%LOCALAPPDATA%\difyctl\bin` then `%USERPROFILE%\.local\bin`. A CMD opened before that change will not see it.
 - User is in CMD, not PowerShell: do not give `$env:PATH=...`. Use `set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%"` or the full exe path.
-- `difyctl auth login` is paused by user. Next closed loop will use the Dify **workflow Service API key** (`app-...` on `POST /v1/workflows/run`), not OpenAPI device-flow. Design doc still says difyctl until that change is written. Do not write console passwords, API keys, or tokens into git/docs.
-- Explorer note: `C:\Users\86153\AppData` is hidden; the exe lives at `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe` even if Local looks empty in a filtered view.
+- `difyctl` is set aside. Explorer reported `C:\Users\86153\AppData\Local\difyctl\bin` unavailable even though the process can still see the exe. Do not keep installing or logging in. Closed loop: C publishes + API key. Do not write console passwords, API keys, or tokens into git/docs.
 ## Data and HITL
 - Deployment B: server Postgres is source of truth; client is cache only.
 - App tables carry `user_id`. Conversation/job/engage/media/Douyin-account rows also carry `agent_instance_id`. Do not ALTER LangGraph official tables.

@@ -1,17 +1,15 @@
 # Progress
 
 ## Current task
-Confirm local `difyctl` install; skip `auth login`; later call Dify workflow via Service API key.
+Drop `difyctl` for now. Confirm v1 closed loop via published Dify workflow Service API key.
 
 ## Status
-Binary is installed and runnable. User could not see it in Explorer because `C:\Users\86153\AppData` is a hidden folder; the file is not missing. Login will not be retried. Next closed loop uses the published workflow API key (`Authorization: Bearer app-...` -> `/v1/workflows/run`), not `difyctl auth login`. App was last seen draft-only with no API keys. No workflow edits. No secrets written to git.
+Feasible. Current design already lists HTTP + App API Key as the fallback when `difyctl` is unavailable. User hit Explorer “位置不可用” on `C:\Users\86153\AppData\Local\difyctl\bin` (folder still exists for this process; ACL includes CodexSandboxUsers). Do not keep debugging that path. Login will not be retried. Blocker is C publishing `douyin-lead-discovery` and creating an API key (last inspect: draft, 0 published versions, no keys). No workflow edits. No secrets in git.
 
 ## Done
-- Verified `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe` (117952512 bytes, SHA-256 8C5406F3...AEFB77, `version --client` = 0.2.0-alpha).
-- Opened that file in Explorer via `explorer /select`.
-- User confirmed: do not run `difyctl auth login` for now.
+- Confirmed API-key transport is viable and already reserved in the modify doc as fallback.
+- User asked to put `difyctl` aside.
 
 ## Next
-- Wait for C to publish `douyin-lead-discovery` and create a workflow API key.
-- If this API-key transport is locked, update `docs/modify/抖音运营智能体修改设计方案（1）.md` before coding.
-- Do not `difyctl run` and do not store the API key in git.
+- If user confirms writing: promote API key from fallback to v1 primary in `docs/modify/抖音运营智能体修改设计方案（1）.md`.
+- Wait for C to publish and issue a Service API key. Store only in server `.env`, never in docs.

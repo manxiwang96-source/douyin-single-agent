@@ -43,3 +43,8 @@ parallel_tool_calls=False.
 ## Delivery
 Default pytest is fully mocked.
 Delivery gate is RUN_LIVE_ASSISTANT=1: immediately run morning brief, real MCP weekday/weather/temp, real 163 email.
+
+## Next redesign
+
+Locked but not implemented: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
+Keep this file as the current runtime map until that upgrade lands.

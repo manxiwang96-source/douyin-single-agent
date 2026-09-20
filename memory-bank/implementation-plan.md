@@ -26,3 +26,7 @@ Each step is independently verifiable. Do not paste langgraph.com.cn samples. Se
 8. Default `pytest` fully mocked and green. Then `RUN_LIVE_ASSISTANT=1 tests/test_live_assistant.py`: immediately run morning brief, real MCP weekday/weather/temp, real 163 email. Missing live config must skip with a reason; that skip is not delivery success.
 
 9. After the milestone, update `memory-bank/architecture.md`, `memory-bank/progress.md`, and `agent_memory/*`.
+
+## Next upgrade
+
+Stop following the assistant-upgrade steps above for new work. The locked Douyin worker redesign is `docs/modify/抖音运营智能体修改设计方案（1）.md`. Implement in the order listed there; do not start Dify/job code before that doc is the source of truth.

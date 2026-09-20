@@ -1,15 +1,16 @@
 # Progress
 
 ## Current task
-Write recap document: 个人超级助手总结与逻辑复盘（2）.
+Lock the Douyin worker redesign into `docs/modify/抖音运营智能体修改设计方案（1）.md`.
 
 ## Status
-Document landed with plain-language headings. Default pytest is fully mocked and green. Chinese commit created.
+Design doc and structure test are the delivery for this turn. No worker runtime code in this change.
 
 ## Done
-- Added docs/summary/个人超级助手总结与逻辑复盘（2）.md mapping this repo to langgraph.com.cn pages.
-- Added tests/test_assistant_summary_doc.py for title, locked keywords, URLs, 人话 headings, and secret leak checks.
-- Previous upgrade delivery gate still stands: RUN_LIVE_ASSISTANT=1 morning brief status=sent.
+- Confirmed: no full scrape mirror; outbound HITL is a table queue; DMs may have local `proposed`; media default 7-day retention.
+- Jobs must be cancellable from the client and from chat (`cancel_job` / disable definition).
+- Wrote the locked design covering MCP vs node vs tools, difyctl without App API keys, deployment B, C's Chain B state machines, table split, and cancellation.
 
 ## Next
-- None for this documentation task. Do not treat default pytest green as a new live-email delivery.
+- Point memory-bank at this doc before coding.
+- Implement in the order listed in section 17 of the design doc.

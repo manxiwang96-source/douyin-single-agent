@@ -1,16 +1,17 @@
 # Progress
 
 ## Current task
-Write the confirmed Dify one-tool true-send loop into `docs/modify/抖音运营智能体修改设计方案（1）.md`.
+Install the official `difyctl` matching local Dify Community `1.17.0`.
 
 ## Status
-Design doc, doc tests, memory-bank pointers, and agent_memory updated. No worker business code. No Dify edits.
+Done. Client `0.2.0-alpha` is at `%LOCALAPPDATA%\difyctl\bin\difyctl.exe`, SHA-256 matches the `1.17.0` Windows x64 release asset. User PATH updated. Not logged in. No Dify edits. No worker business code.
 
 ## Done
-- Locked unique contract: `douyin-lead-discovery` via `discover_douyin_leads`, `no_send=false`.
-- Retired two-tool / `--no-send` / comment-DM review API as v1 path.
-- Kept HITL columns and job/cancel tables for later.
+- Pinned installer/release to Dify tag `1.17.0` (do not use latest / 1.17.1).
+- Verified `difyctl version --client`: `0.2.0-alpha`, compat `dify >=1.16.0, <=1.17.0`.
+- Added `%LOCALAPPDATA%\difyctl\bin` to the user PATH.
 
 ## Next
-- After this commit, implement in the order in section 17, starting with mocked `DifyClient`.
-- Do not live-call Dify until C publishes and HTTP is up.
+- Login only when the user explicitly asks.
+- Do not `difyctl run` until C publishes `douyin-lead-discovery` and HTTP is up.
+- Worker implementation still waits on the modify-doc section 17 order.

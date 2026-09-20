@@ -11,9 +11,11 @@
 - `~/.codex/templates/agent_memory/` is still missing; files follow the existing three-file layout.
 - Live ChatOpenAI against aitokens.website can exceed 20s; unrelated.
 - Pre-existing dirty file `docs/summary/个人超级助手总结与逻辑复盘（2）.md` makes `test_each_heading_starts_with_plain_language` fail (`## 0.` heading without nearby `人话`). Left untouched.
+- A fresh GitHub re-download of the 112MB Windows binary was slow/partial and was not required after SHA-256 already matched the installed copy.
 
 ## Closed
 - Input variable names for `douyin-lead-discovery` were read from the draft start node.
 - Dify version for this host is 1.17.0 Community.
 - v1 no longer assumes two tools or default `--no-send`; `no_send=false` is the locked true-send path, not a HITL bug.
 - Comment/DM review is intentionally skipped in v1 after C confirmed real publish.
+- Matching `difyctl` for Dify `1.17.0` is installed locally (`0.2.0-alpha`, official Windows x64 asset).

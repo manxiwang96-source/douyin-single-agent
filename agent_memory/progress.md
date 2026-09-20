@@ -1,15 +1,19 @@
 # Progress
 
 ## Current task
-Drop `difyctl` for now. Confirm v1 closed loop via published Dify workflow Service API key.
+Lock env var names for the published-workflow API-key transport. Do not call Dify until C publishes.
 
 ## Status
-Feasible. Current design already lists HTTP + App API Key as the fallback when `difyctl` is unavailable. User hit Explorer “位置不可用” on `C:\Users\86153\AppData\Local\difyctl\bin` (folder still exists for this process; ACL includes CodexSandboxUsers). Do not keep debugging that path. Login will not be retried. Blocker is C publishing `douyin-lead-discovery` and creating an API key (last inspect: draft, 0 published versions, no keys). No workflow edits. No secrets in git.
+`difyctl` is set aside. User asked how to write env vars first; values stay empty until publish. No secrets in git. No workflow edits.
 
-## Done
-- Confirmed API-key transport is viable and already reserved in the modify doc as fallback.
-- User asked to put `difyctl` aside.
+## Locked env names (empty until C publishes)
+- `DIFY_BASE_URL=http://192.168.1.158/v1`  (origin + `/v1`, same style as `OPENAI_API_BASE_URL`)
+- `DIFY_API_KEY=`  (Service API `app-...`; only `.env`)
+- `DIFY_LEAD_APP_ID=douyin-lead-discovery`  (log / switch; not required to `POST /workflows/run`)
+- `DOUYIN_HTTP_BASE_URL=`  (C HTTP `base_url` input)
+- `DOUYIN_HTTP_API_TOKEN=`  (C HTTP `api_token` input; only `.env`)
+Retired: `DIFYCTL_BIN`, `DIFY_COMMENT_APP_ID`, `DIFY_DM_APP_ID`.
 
 ## Next
-- If user confirms writing: promote API key from fallback to v1 primary in `docs/modify/抖音运营智能体修改设计方案（1）.md`.
-- Wait for C to publish and issue a Service API key. Store only in server `.env`, never in docs.
+- After C publishes and creates the key, fill `.env` locally; never commit the key.
+- Promote this in the modify doc when user asks to write.

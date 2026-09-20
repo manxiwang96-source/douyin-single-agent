@@ -16,7 +16,7 @@ v1: one active instance per user. Graph stays `START -> chatbot -> tools_conditi
 - Transport for this iteration: **published workflow Service API key** (`POST /v1/workflows/run`) from the existing ToolNode. `difyctl` is paused (Explorer cannot open the install dir; OpenAPI login 404). Design doc still names difyctl as default and HTTP+API key as fallback until rewritten.
 - `no_send=false` = real send at Dify's first `POST /v1/commands/run`. list-comment / list-message only fetch results.
 - Do not dual-call C's CLI. Do not add MCP or a Dify graph node. Do not use `create_react_agent`.
-- Config names: `DIFY_LEAD_APP_ID`, `DIFY_BASE_URL`, `DIFYCTL_BIN`. Old `DIFY_COMMENT_APP_ID` / `DIFY_DM_APP_ID` and tools `reply_douyin_comment` / `send_douyin_dm` are retired.
+- Config names: `DIFY_BASE_URL` (`http://192.168.1.158/v1`), `DIFY_API_KEY` (Service API, `.env` only), `DIFY_LEAD_APP_ID`, `DOUYIN_HTTP_BASE_URL`, `DOUYIN_HTTP_API_TOKEN`. Retired: `DIFYCTL_BIN`, `DIFY_COMMENT_APP_ID`, `DIFY_DM_APP_ID`.
 - Tool args for the model: `account` (required), `keyword`/`video_id`, `limit`, `channels`, `list_status`. Server fills `base_url`, `api_token`, `no_send=false`, `auto_login`.
 - Tell the user it will really send. Do not say draft-first.
 

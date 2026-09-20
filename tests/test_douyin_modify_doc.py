@@ -57,6 +57,14 @@ class TestDouyinModifyDoc(unittest.TestCase):
             "https://langgraph.com.cn/concepts/memory.1.html",
             "https://langgraph.com.cn/concepts/persistence.1.html",
             "https://langgraph.com.cn/how-tos/persistence.1.html",
+            "agent_instances",
+            "agent_instance_id",
+            "新建智能体",
+            "用这个智能体",
+            "douyin_ops",
+            "只展示",
+            "不勾选",
+            "configurable={thread_id, user_id, agent_instance_id}",
         ]
         missing = [item for item in required if item not in text]
         self.assertEqual(missing, [], f"missing snippets: {missing}")

@@ -48,3 +48,4 @@ Delivery gate is RUN_LIVE_ASSISTANT=1: immediately run morning brief, real MCP w
 
 Locked but not implemented: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
 Keep this file as the current runtime map until that upgrade lands.
+That doc's client entry is 登录 → 新建智能体 → 展示能力（只展示、不勾选）→ 用这个智能体 → 对话; v1 one `douyin_ops` instance per user; `ainvoke` will carry `thread_id` / `user_id` / `agent_instance_id`. Graph nodes stay unchanged.

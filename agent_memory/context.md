@@ -28,7 +28,8 @@ v1: one active instance per user. Graph stays `START -> chatbot -> tools_conditi
 - SHA-256 matches official release asset `difyctl-v0.2.0-alpha-windows-x64.exe` on tag `1.17.0`
 - User PATH: `%LOCALAPPDATA%\difyctl\bin` then `%USERPROFILE%\.local\bin`. A CMD opened before that change will not see it.
 - User is in CMD, not PowerShell: do not give `$env:PATH=...`. Use `set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%"` or the full exe path.
-- Login blocked: host OpenAPI/device-flow is off (`unsupported_endpoint`, HTTP 404 on `/openapi/v1/oauth/device/code`). Official login never accepts the console password. `DIFY_TOKEN` also needs a `dfoa_` bearer from that same OpenAPI flow. Do not write console passwords or tokens into git/docs.
+- `difyctl auth login` is paused by user. Next closed loop will use the Dify **workflow Service API key** (`app-...` on `POST /v1/workflows/run`), not OpenAPI device-flow. Design doc still says difyctl until that change is written. Do not write console passwords, API keys, or tokens into git/docs.
+- Explorer note: `C:\Users\86153\AppData` is hidden; the exe lives at `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe` even if Local looks empty in a filtered view.
 ## Data and HITL
 - Deployment B: server Postgres is source of truth; client is cache only.
 - App tables carry `user_id`. Conversation/job/engage/media/Douyin-account rows also carry `agent_instance_id`. Do not ALTER LangGraph official tables.

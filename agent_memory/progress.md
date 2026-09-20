@@ -1,18 +1,17 @@
 # Progress
 
 ## Current task
-Make `difyctl` usable in the user's CMD and sign in to local Dify `http://192.168.1.158`.
+Confirm local `difyctl` install; skip `auth login`; later call Dify workflow via Service API key.
 
 ## Status
-Client binary is fine. User typed PowerShell `$env:PATH=...` into CMD, which is why the second command said 文件名、目录名或卷标语法不正确. `difyctl auth login` is still blocked on the Dify host: `POST /openapi/v1/oauth/device/code` returns 404 (`OPENAPI_ENABLED` / `ENABLE_OAUTH_BEARER` default false). Exit 6 `unsupported_endpoint`. This machine cannot SSH or Docker into `192.168.1.158`. No workflow edits. No secrets written to git.
+Binary is installed and runnable. User could not see it in Explorer because `C:\Users\86153\AppData` is a hidden folder; the file is not missing. Login will not be retried. Next closed loop uses the published workflow API key (`Authorization: Bearer app-...` -> `/v1/workflows/run`), not `difyctl auth login`. App was last seen draft-only with no API keys. No workflow edits. No secrets written to git.
 
 ## Done
-- `difyctl.exe` at `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe` runs `version --client` → `0.2.0-alpha`.
-- Shim `C:\Users\86153\.local\bin\difyctl.cmd` now calls that absolute path (no `%LOCALAPPDATA%`).
-- User PATH already has `%LOCALAPPDATA%\difyctl\bin` then `%USERPROFILE%\.local\bin`. Old CMD windows do not see it; new CMD or full exe path does.
-- Re-ran `difyctl auth login --host http://192.168.1.158 --insecure --no-browser -v`; still HTTP 404.
+- Verified `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe` (117952512 bytes, SHA-256 8C5406F3...AEFB77, `version --client` = 0.2.0-alpha).
+- Opened that file in Explorer via `explorer /select`.
+- User confirmed: do not run `difyctl auth login` for now.
 
 ## Next
-- In a **new CMD** (not PowerShell), run the full-path version command, then login.
-- On the Dify host, set `OPENAPI_ENABLED=true` and `ENABLE_OAUTH_BEARER=true`, restart API, then login again.
-- Do not `difyctl run` until C publishes `douyin-lead-discovery`.
+- Wait for C to publish `douyin-lead-discovery` and create a workflow API key.
+- If this API-key transport is locked, update `docs/modify/抖音运营智能体修改设计方案（1）.md` before coding.
+- Do not `difyctl run` and do not store the API key in git.

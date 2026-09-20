@@ -1,16 +1,16 @@
 # Progress
 
 ## Current task
-Compare calling classmate C's Dify workflow `douyin-lead-discovery` vs calling C's CLI. Discussion only.
+Write the confirmed Dify one-tool true-send loop into `docs/modify/抖音运营智能体修改设计方案（1）.md`.
 
 ## Status
-Read-only inspect of local Dify 1.17.0 completed. No Dify edits, no worker code, no design-doc rewrite.
+Design doc, doc tests, memory-bank pointers, and agent_memory updated. No worker business code. No Dify edits.
 
 ## Done
-- Confirmed app exists and is scan/list orchestration over C HTTP, not browser automation itself.
-- Confirmed it is unpublished and has no send path.
-- Confirmed input/output variable names from the draft start/end nodes.
+- Locked unique contract: `douyin-lead-discovery` via `discover_douyin_leads`, `no_send=false`.
+- Retired two-tool / `--no-send` / comment-DM review API as v1 path.
+- Kept HITL columns and job/cancel tables for later.
 
 ## Next
-- Keep the LangGraph two-tool shape. Transport choice still needs C to pick one contract.
-- Do not write worker business code until the modify doc remains source of truth.
+- After this commit, implement in the order in section 17, starting with mocked `DifyClient`.
+- Do not live-call Dify until C publishes and HTTP is up.

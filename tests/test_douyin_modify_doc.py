@@ -65,6 +65,13 @@ class TestDouyinModifyDoc(unittest.TestCase):
             "只展示",
             "不勾选",
             "configurable={thread_id, user_id, agent_instance_id}",
+            "discover_douyin_leads",
+            "douyin-lead-discovery",
+            "no_send=false",
+            "DIFY_LEAD_APP_ID",
+            "1.17.0",
+            "会真实发送",
+            "不再采用",
         ]
         missing = [item for item in required if item not in text]
         self.assertEqual(missing, [], f"missing snippets: {missing}")

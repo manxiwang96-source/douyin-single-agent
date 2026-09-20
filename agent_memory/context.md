@@ -22,12 +22,13 @@ v1: one active instance per user. Graph stays `START -> chatbot -> tools_conditi
 
 ## Local difyctl
 - Binary: `C:\Users\86153\AppData\Local\difyctl\bin\difyctl.exe`
-- Shim: `%USERPROFILE%\.local\bin\difyctl.cmd` (so `difyctl` works when User PATH is not inherited)
+- Shim: `C:\Users\86153\.local\bin\difyctl.cmd` now calls that absolute exe path (CMD-safe; no `%LOCALAPPDATA%`).
 - Client: `0.2.0-alpha` (commit `09a855d`, win32/x64)
 - Compat: Dify `>=1.16.0, <=1.17.0` (matches local Community `1.17.0`)
 - SHA-256 matches official release asset `difyctl-v0.2.0-alpha-windows-x64.exe` on tag `1.17.0`
-- User PATH includes `%LOCALAPPDATA%\difyctl\bin`
-- Login blocked: host OpenAPI/device-flow is off (`unsupported_endpoint`, HTTP 404). Do not write console passwords or tokens into git/docs.
+- User PATH: `%LOCALAPPDATA%\difyctl\bin` then `%USERPROFILE%\.local\bin`. A CMD opened before that change will not see it.
+- User is in CMD, not PowerShell: do not give `$env:PATH=...`. Use `set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%"` or the full exe path.
+- Login blocked: host OpenAPI/device-flow is off (`unsupported_endpoint`, HTTP 404 on `/openapi/v1/oauth/device/code`). Official login never accepts the console password. `DIFY_TOKEN` also needs a `dfoa_` bearer from that same OpenAPI flow. Do not write console passwords or tokens into git/docs.
 ## Data and HITL
 - Deployment B: server Postgres is source of truth; client is cache only.
 - App tables carry `user_id`. Conversation/job/engage/media/Douyin-account rows also carry `agent_instance_id`. Do not ALTER LangGraph official tables.

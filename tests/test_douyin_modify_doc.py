@@ -72,6 +72,10 @@ class TestDouyinModifyDoc(unittest.TestCase):
             "1.17.0",
             "会真实发送",
             "不再采用",
+            "DIFY_API_KEY",
+            "DOUYIN_HTTP_BASE_URL",
+            "DOUYIN_HTTP_API_TOKEN",
+            "/v1/workflows/run",
         ]
         missing = [item for item in required if item not in text]
         self.assertEqual(missing, [], f"missing snippets: {missing}")

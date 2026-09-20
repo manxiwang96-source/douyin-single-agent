@@ -1,7 +1,7 @@
 # Bugs and Risks
 
 ## Open
-- `difyctl auth login` remains blocked on host OpenAPI 404, but login is paused: v1 closed loop will try the workflow Service API key instead. Last inspect: `douyin-lead-discovery` unpublished, no API keys yet. App API key != `difyctl` `dfoa_` token; do not mix them.
+- `difyctl auth login` remains blocked on host OpenAPI 404. Design now locks v1 on the published workflow Service API key, not CLI OAuth. Last inspect: `douyin-lead-discovery` unpublished, no API keys yet. App API key != `difyctl` `dfoa_` token; do not mix them.
 - User CMD vs PowerShell: `$env:PATH=...` in CMD yields 文件名、目录名或卷标语法不正确. Prefer the full exe path or `set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%"`. Shim no longer depends on `%LOCALAPPDATA%`.
 - `douyin-lead-discovery` is still draft-only (0 published versions, no API keys). `difyctl run` / Service API cannot live-run until C publishes.
 - C HTTP (`base_url`) was not reachable from this machine when inspected; treat backend reachability as unconfirmed.

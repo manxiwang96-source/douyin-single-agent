@@ -11,7 +11,7 @@
 - MCP: FastMCP stdio in `mcp_servers/personal.py`; `langchain-mcp-adapters.MultiServerMCPClient.get_tools()` merged into existing tools. Open-Meteo, no API key
 - Email: stdlib SMTP_SSL `smtp.163.com:465`
 - Scheduler: APScheduler in FastAPI lifespan; OSS has no LangGraph Platform Cron
-- httpx for gateway image, DashScope video, and Open-Meteo
+- httpx for gateway image, DashScope video, Open-Meteo, and the next-upgrade Dify Service API (`POST /v1/workflows/run` + `DIFY_API_KEY`; `difyctl` retired)
 - pydantic-settings for env
 - pytest fully mocked by default; `RUN_LIVE_ASSISTANT=1` and `RUN_LIVE_API=1` optional live gates
 

@@ -1,6 +1,7 @@
 # Bugs and Risks
 
 ## Open
+- Local Dify at `http://192.168.1.158` has OpenAPI/device-flow off; `difyctl auth login` cannot start until `OPENAPI_ENABLED` and `ENABLE_OAUTH_BEARER` are true and the API is restarted.
 - `douyin-lead-discovery` is still draft-only (0 published versions, no API keys). `difyctl run` / Service API cannot live-run until C publishes.
 - C HTTP (`base_url`) was not reachable from this machine when inspected; treat backend reachability as unconfirmed.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be `cancelled` while send already happened.

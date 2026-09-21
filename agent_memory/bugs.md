@@ -2,6 +2,7 @@
 
 ## Open
 - FastAPI/Streamlit titles already say 抖音运营助手 after 阶段 0, but the graph still has no `discover_douyin_leads` and Streamlit is still the old unauthenticated chat entry until later phases.
+- Business tables exist, but FastAPI login/plaza and DifyClient are not wired yet (阶段 2+).
 - C HTTP (`DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN`) is empty in local `.env`. User confirmed the Dify workflow has defaults and console runs succeed; worker still must omit empty HTTP fields instead of failing startup.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
 - Existing PROFILE_NAMESPACE / JOBS_NAMESPACE ("assistant", ...) is global and will leak across users until phase 3 lands `(user_id, agent_instance_id, "profile"|"kb")`.
@@ -15,6 +16,7 @@
 - difyctl auth login remains blocked on host OpenAPI 404. v1 no longer uses CLI OAuth; keep App API key and dfoa_ tokens unmixed.
 
 ## Closed
+- 阶段 1 business SQL + in-memory repository landed; default pytest still does not open real Postgres.
 - Plaza/sidebar, 一人多实例, binding table, instance KB retrieve, and field-level schema are locked in docs/modify/抖音运营智能体修改设计方案（1）.md.
 - Phased execution for a new conversation is locked in stage/README.md and stage/抖音运营智能体分阶段实施套餐.md. Deleted stage1/ is not a source.
 - User confirmed douyin-lead-discovery is published and console-tested; local `.env` has DIFY_API_KEY / DIFY_BASE_URL (values must not be copied into docs or memory).

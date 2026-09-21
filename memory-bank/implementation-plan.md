@@ -36,6 +36,6 @@ Phased execution for a new conversation is stage/README.md plus stage/抖音运�
 
 v1 template `douyin_ops`; one Dify tool `discover_douyin_leads` over `douyin-lead-discovery`; HTTP `POST /v1/workflows/run` + `DIFY_API_KEY` (not `difyctl`); true-send (`no_send=false`); `DIFY_LIVE_ENABLED` default false until phase 7.
 
-阶段 0 only: memory-bank, Settings, read-only catalog, prompt, demo KB, default-disable scheduler. Do not start SQL / DifyClient / plaza in this phase.
+阶段 0 landed docs/config. 阶段 1 landed business SQL + in-memory/Postgres repositories (pgvector required at production startup). Do not start DifyClient / plaza HTTP in the current phase.
 
 Do not start Dify/job business code before that doc is the source of truth. Product decisions still come from the modify design doc.

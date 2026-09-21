@@ -1,10 +1,10 @@
 # Progress
 
 ## Current task
-阶段 0（文档与配置）已完成：目录、提示词、Dify Settings、demo KB、默认停调度。
+阶段 1（业务表与仓库）已完成：SQL、内存仓库、生产 pgvector/schema 启动。
 
 ## Status
-当前目标是抖音运营智能体。现网图 / API / 记忆 namespace 仍是个人超级助理。未建业务表，未写 DifyClient，未做登录广场。
+业务表与 InMemoryBusinessRepository 已落地。默认 pytest 不连真 Postgres。现网图 / API / 记忆 namespace 仍是个人超级助理。未接登录广场，未写 DifyClient。
 
 ## Next
-阶段 1 — 业务表与仓库。一次只做该阶段。不要把 stage1/ 当源。不要在未到阶段 7 时打真实 Dify。
+阶段 2 — 登录与广场 API。一次只做该阶段。不要把 stage1/ 当源。不要在未到阶段 7 时打真实 Dify。

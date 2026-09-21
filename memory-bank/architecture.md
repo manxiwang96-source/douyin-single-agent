@@ -2,7 +2,11 @@
 
 ## Layout
 - app/config.py: Settings from env, cheapest image/video params, assistant city/timezone, Postgres/SMTP/MCP/scheduler flags, production validation
-- app/postgres.py: create database if missing; ConnectionPool + PostgresSaver.setup() + PostgresStore.setup(); no SQLite fallback
+- app/postgres.py: create database if missing; ConnectionPool + PostgresSaver.setup() + PostgresStore.setup() with pgvector index; apply business schema; no SQLite fallback
+- app/sql/001_business.sql: Douyin worker business tables; never ALTER checkpoints* / store
+- app/schema.py: load/apply business SQL; CREATE EXTENSION vector or fail with a clear reason
+- app/repository.py: InMemoryBusinessRepository for default pytest
+- app/postgres_repository.py: psycopg production repository
 - app/mcp_client.py: FastMCP stdio via MultiServerMCPClient.get_tools(); McpFactsProvider for weekday/weather/temp
 - mcp_servers/personal.py: get_current_datetime + get_weather (Open-Meteo, default Guangzhou)
 - app/email_client.py: SMTP_SSL smtp.163.com:465
@@ -13,7 +17,7 @@
 - app/video_client.py: DashScope async video-synthesis + poll
 - app/tools.py: search_kb executes immediately; generate_image/generate_video call interrupt then Command(update=...); remember_fact/recall_facts/send_email plus extra MCP tools join the same ToolNode
 - app/graph.py: tutorial graph — chatbot + tools (ToolNode) + tools_condition; custom last_image_path / last_video_path; compile(checkpointer=..., store=memory_store)
-- app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store; ChatOpenAI timeout + max_tokens so the gateway cannot generate forever
+- app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store and InMemoryBusinessRepository; ChatOpenAI timeout + max_tokens so the gateway cannot generate forever
 - app/main.py: FastAPI factory create_app(runtime=None); ainvoke for message/resume; POST /v1/assistant/jobs/run; lifespan scheduler + catch-up
 - app/prompts.py: identity is 个人超级助理; Xiaohongshu format and search_kb only when explicitly requested
 - app/serialize.py: thread JSON with media URLs and review_media interrupt
@@ -32,6 +36,8 @@ parallel_tool_calls=False.
 ## Memory
 - Short-term: production PostgresSaver; tests InMemorySaver
 - Long-term: production PostgresStore; tests in-memory store; namespaces assistant/profile and assistant/jobs
+- Production PostgresStore embedding index uses pgvector; startup fails if the extension is missing
+- Business tables live beside official LangGraph tables; tests use InMemoryBusinessRepository and never open real Postgres
 - KB RAG stays process-local InMemoryStore
 - Secrets stay in local .env and are never stored in git
 
@@ -50,6 +56,6 @@ Current target is 抖音运营智能体, but this file remains the 个人超级�
 Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
 Execute the upgrade one phase at a time from stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
 
-阶段 0 only changes docs and config: Settings, read-only catalog `douyin_ops`, prompt, demo KB, default-disable scheduler. Do not add SQL, DifyClient, or plaza here, and do not rewrite Layout as if the Douyin worker has already replaced the assistant graph.
+阶段 0 landed docs/config. 阶段 1 landed business SQL + in-memory/Postgres repositories and production pgvector/schema startup. Do not rewrite this file as if plaza, DifyClient, or namespace isolation have replaced the assistant graph; those are later phases.
 
 That doc's client entry is 登录 → 新建智能体（一人多实例，填名称/简介/头像）→ 点卡片用这个智能体 → 对话+只读侧边栏; 能力只展示、不勾选; `ainvoke` will carry `thread_id` / `user_id` / `agent_instance_id`. Graph nodes stay unchanged. Retrieve happens inside chatbot against the instance KB. v1 Dify contract is one tool `discover_douyin_leads` over `douyin-lead-discovery` with `no_send=false`, transport `POST /v1/workflows/run` + Service API key; `difyctl` is retired; Dify stays in ToolNode, not MCP. Comment/DM HITL tables exist but v1 does not review outbound Douyin. `DIFY_LIVE_ENABLED` stays false until phase 7.

@@ -4,6 +4,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.postgres import admin_uri, database_name
+from app.repository import InMemoryBusinessRepository
 from app.runtime import build_runtime
 
 
@@ -40,6 +41,7 @@ def test_production_runtime_requires_postgres_without_fallback(
 
 def test_test_runtime_stays_in_memory(runtime):
     assert isinstance(runtime.checkpointer, InMemorySaver)
+    assert isinstance(runtime.business_repo, InMemoryBusinessRepository)
     assert runtime.pg_pool is None
 
 from unittest.mock import MagicMock, patch

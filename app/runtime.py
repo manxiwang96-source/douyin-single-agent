@@ -16,6 +16,7 @@ from app.knowledge import index_knowledge_dir, make_store
 from app.mcp_client import McpFactsProvider, StaticFactsProvider, default_test_facts, load_mcp_tools
 from app.media_paths import ensure_media_dirs, resolve_media_root
 from app.postgres import make_postgres_memory
+from app.repository import InMemoryBusinessRepository
 from app.tools import build_tools
 from app.video_client import VideoClient
 
@@ -46,6 +47,7 @@ class AppRuntime:
     email_client: Any
     facts_provider: Any
     pg_pool: Any = None
+    business_repo: Any = None
 
 
 def make_llm(settings: Settings):
@@ -75,6 +77,7 @@ def build_runtime(
     email_client=None,
     facts_provider=None,
     pg_pool=None,
+    business_repo=None,
 ) -> AppRuntime:
     settings = settings or Settings()
     root = project_root()
@@ -92,12 +95,20 @@ def build_runtime(
     production = checkpointer is None
     if production:
         settings.validate_production()
-        memory = make_postgres_memory(settings.postgres_uri)
+        memory = make_postgres_memory(
+            settings.postgres_uri,
+            embeddings=embeddings,
+            embedding_dims=settings.embedding_dims,
+        )
         checkpointer = memory.checkpointer
         memory_store = memory.store
         pg_pool = memory.pool
-    elif memory_store is None:
-        memory_store = InMemoryStore()
+        business_repo = memory.repository
+    else:
+        if memory_store is None:
+            memory_store = InMemoryStore()
+        if business_repo is None:
+            business_repo = InMemoryBusinessRepository()
 
     image_client = image_client or ImageClient(settings, media_root)
     video_client = video_client or VideoClient(settings, media_root)
@@ -145,6 +156,7 @@ def build_runtime(
         email_client=email_client,
         facts_provider=facts_provider,
         pg_pool=pg_pool,
+        business_repo=business_repo,
     )
 
 

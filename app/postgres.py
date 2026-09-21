@@ -11,6 +11,9 @@ from langgraph.store.postgres import PostgresStore
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from app.postgres_repository import PostgresBusinessRepository
+from app.schema import apply_business_schema, ensure_pgvector_extension
+
 _SAFE_DB = re.compile(r"^[A-Za-z0-9_]+$")
 
 
@@ -39,6 +42,7 @@ class PostgresMemory:
     checkpointer: AppPostgresSaver
     store: PostgresStore
     pool: ConnectionPool
+    repository: PostgresBusinessRepository | None = None
 
 
 def admin_uri(uri: str) -> str:
@@ -76,7 +80,29 @@ def ensure_postgres_database(uri: str) -> None:
     raise original
 
 
-def make_postgres_memory(uri: str) -> PostgresMemory:
+def postgres_store_index(embeddings, embedding_dims: int) -> dict:
+    if embeddings is None or embedding_dims is None:
+        raise RuntimeError("PostgresStore embedding index requires embeddings and dims")
+    embed = embeddings
+    if not hasattr(embeddings, "embed_documents"):
+        from app.embeddings import wrap_embed_documents
+
+        embed = wrap_embed_documents(embeddings)
+    return {
+        "dims": int(embedding_dims),
+        "embed": embed,
+        "fields": ["text"],
+        "ann_index_config": {"kind": "hnsw", "vector_type": "vector"},
+        "distance_type": "cosine",
+    }
+
+
+def make_postgres_memory(
+    uri: str,
+    *,
+    embeddings=None,
+    embedding_dims: int | None = None,
+) -> PostgresMemory:
     if not uri:
         raise RuntimeError("POSTGRES_URI is required for production memory")
     ensure_postgres_database(uri)
@@ -92,8 +118,20 @@ def make_postgres_memory(uri: str) -> PostgresMemory:
         },
     )
     pool.wait(timeout=10)
+    with pool.connection() as conn:
+        ensure_pgvector_extension(conn)
+        apply_business_schema(conn)
     checkpointer = AppPostgresSaver(pool)
-    store = PostgresStore(pool)
+    store = PostgresStore(
+        pool,
+        index=postgres_store_index(embeddings, embedding_dims),
+    )
     checkpointer.setup()
     store.setup()
-    return PostgresMemory(checkpointer=checkpointer, store=store, pool=pool)
+    repository = PostgresBusinessRepository(pool)
+    return PostgresMemory(
+        checkpointer=checkpointer,
+        store=store,
+        pool=pool,
+        repository=repository,
+    )

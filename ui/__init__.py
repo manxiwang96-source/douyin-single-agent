@@ -1,1 +1,1 @@
-"""Streamlit HTTP client for the personal super assistant."""
+"""Streamlit HTTP client for the Douyin operations assistant."""

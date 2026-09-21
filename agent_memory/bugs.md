@@ -1,7 +1,7 @@
 # Bugs and Risks
 
 ## Open
-- Streamlit is still the old unauthenticated chat entry until phase 6.
+- Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。
 - C HTTP (`DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN`) is empty in local `.env`. User confirmed the Dify workflow has defaults and console runs succeed; worker still must omit empty HTTP fields instead of failing startup.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
 - Morning-brief JOBS_NAMESPACE ("assistant", "jobs") remains global; conversation profile/KB/media are isolated as of phase 3.
@@ -14,7 +14,8 @@
 - difyctl auth login remains blocked on host OpenAPI 404. v1 no longer uses CLI OAuth; keep App API key and dfoa_ tokens unmixed.
 
 ## Closed
-- 阶段 5 list_jobs/cancel_job + HTTP disable/cancel landed; disable 后不再生成新 run；取消是状态，已 sent 不撤回。默认 pytest 仍全 mock。
+- 阶段 6 Streamlit 过渡客户端 landed：登录/注册、广场卡片、/open 对话、只读侧边栏；token 在 session_state 并带 Bearer；旧未登录 POST /v1/threads 入口已去掉。默认 pytest 仍全 mock。
+- 阶段 5 list_jobs/cancel_job + HTTP disable/cancel landed；disable 后不再生成新 run；取消是状态，已 sent 不撤回。默认 pytest 仍全 mock。
 - 阶段 4 DifyClient + discover_douyin_leads landed in ToolNode; default pytest injects FakeDifyClient and does not POST real Dify. DIFY_LIVE_ENABLED stays false.
 - 阶段 1 business SQL + in-memory repository landed; default pytest still does not open real Postgres.
 - 阶段 2 FastAPI login/plaza/sidebar/open HTTP landed; old POST /v1/threads is no longer the product entry after login.

@@ -19,6 +19,9 @@ from app.repository import (
     JobRunRecord,
     KnowledgeDocumentRecord,
     KnowledgeSeed,
+    MediaAssetRecord,
+    MEDIA_KINDS,
+    MEDIA_STORAGE_STATUSES,
     NotFoundError,
     RepositoryError,
     SessionRecord,
@@ -509,6 +512,52 @@ class PostgresBusinessRepository:
         )
         return None if row is None else _thread_from_row(row)
 
+    def add_media_asset(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        kind: str,
+        storage_uri: str,
+        thread_id: str | None = None,
+        storage_status: str = "stored",
+    ) -> MediaAssetRecord:
+        require_value(kind, MEDIA_KINDS, "media kind")
+        require_value(storage_status, MEDIA_STORAGE_STATUSES, "media storage status")
+        sql = """
+            INSERT INTO media_assets (
+                asset_id, user_id, agent_instance_id, thread_id, kind,
+                storage_uri, storage_status, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+        """
+        row = self._fetch_one(
+            sql,
+            (
+                uuid4(),
+                user_id,
+                agent_instance_id,
+                thread_id,
+                kind,
+                storage_uri,
+                storage_status,
+                utcnow(),
+            ),
+        )
+        return _media_from_row(row)
+
+    def list_media_assets(self, agent_instance_id: UUID) -> list[MediaAssetRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM media_assets
+            WHERE agent_instance_id = %s
+            ORDER BY created_at ASC
+            """,
+            (agent_instance_id,),
+        )
+        return [_media_from_row(row) for row in rows]
+
     def _execute(self, sql: str, params=()) -> None:
         try:
             with self.pool.connection() as conn:
@@ -659,6 +708,19 @@ def _job_run_from_row(row) -> JobRunRecord:
         error=row.get("error"),
         started_at=row.get("started_at"),
         finished_at=row.get("finished_at"),
+    )
+
+
+def _media_from_row(row) -> MediaAssetRecord:
+    return MediaAssetRecord(
+        asset_id=_as_uuid(row["asset_id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        kind=row["kind"],
+        storage_uri=row["storage_uri"],
+        storage_status=row["storage_status"],
+        created_at=row["created_at"],
+        thread_id=row.get("thread_id"),
     )
 
 

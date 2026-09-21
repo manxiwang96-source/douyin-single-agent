@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -12,6 +13,7 @@ from app.repository import (
     InMemoryBusinessRepository,
     InvalidTitleError,
     KnowledgeSeed,
+    NotFoundError,
     UnsupportedTemplateError,
 )
 
@@ -136,3 +138,22 @@ def test_trimmed_title_is_stored(repo):
     user = repo.create_user("carol", "hash-not-secret")
     instance = repo.create_agent_instance(user.user_id, "  助手D  ")
     assert instance.title == "助手D"
+
+
+def test_media_asset_requires_owned_instance(repo):
+    user, instance = _user_and_instance(repo, "media-owner")
+    record = repo.add_media_asset(
+        user.user_id,
+        instance.agent_instance_id,
+        kind="image",
+        storage_uri=f"{user.user_id}/{instance.agent_instance_id}/images/demo.png",
+        thread_id="thread-1",
+    )
+    assert record.kind == "image"
+    assert repo.list_media_assets(instance.agent_instance_id)[0].asset_id == record.asset_id
+    other = repo.create_user("dave", "hash-not-secret")
+    with pytest.raises(NotFoundError):
+        repo.add_media_asset(other.user_id, instance.agent_instance_id, kind="video", storage_uri="x")
+    with pytest.raises(NotFoundError):
+        repo.add_media_asset(user.user_id, uuid4(), kind="image", storage_uri="x")
+

@@ -28,6 +28,8 @@ JOB_RUN_STATUSES = frozenset(
 KNOWLEDGE_SOURCES = frozenset({"seeded_demo", "user_upload"})
 KNOWLEDGE_STATUSES = frozenset({"uploaded", "indexing", "ready", "failed", "archived"})
 THREAD_STATUSES = frozenset({"active", "interrupted", "closed", "archived"})
+MEDIA_KINDS = frozenset({"image", "video"})
+MEDIA_STORAGE_STATUSES = frozenset({"stored", "offloaded", "expired", "missing"})
 UNSET = object()
 
 
@@ -168,6 +170,18 @@ class ThreadRecord:
     status: str
     created_at: datetime
     last_active_at: datetime
+
+
+@dataclass(frozen=True)
+class MediaAssetRecord:
+    asset_id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    kind: str
+    storage_uri: str
+    storage_status: str
+    created_at: datetime
+    thread_id: str | None = None
 
 
 def utcnow() -> datetime:
@@ -315,6 +329,19 @@ class BusinessRepository(Protocol):
 
     def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None: ...
 
+    def add_media_asset(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        kind: str,
+        storage_uri: str,
+        thread_id: str | None = None,
+        storage_status: str = "stored",
+    ) -> MediaAssetRecord: ...
+
+    def list_media_assets(self, agent_instance_id: UUID) -> list[MediaAssetRecord]: ...
+
 
 class InMemoryBusinessRepository:
     """Test repository that mirrors SQL uniqueness and naming rules."""
@@ -328,6 +355,7 @@ class InMemoryBusinessRepository:
         self._documents: dict[UUID, KnowledgeDocumentRecord] = {}
         self._sessions: dict[UUID, SessionRecord] = {}
         self._threads: dict[str, ThreadRecord] = {}
+        self._media_assets: dict[UUID, MediaAssetRecord] = {}
 
     def create_user(self, login_name: str, password_hash: str, *, status: str = "active") -> UserRecord:
         name = (login_name or "").strip()
@@ -673,6 +701,38 @@ class InMemoryBusinessRepository:
         if not records:
             return None
         return sorted(records, key=lambda item: (item.last_active_at, item.created_at), reverse=True)[0]
+
+    def add_media_asset(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        kind: str,
+        storage_uri: str,
+        thread_id: str | None = None,
+        storage_status: str = "stored",
+    ) -> MediaAssetRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(kind, MEDIA_KINDS, "media kind")
+        require_value(storage_status, MEDIA_STORAGE_STATUSES, "media storage status")
+        record = MediaAssetRecord(
+            asset_id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            kind=kind,
+            storage_uri=storage_uri,
+            storage_status=storage_status,
+            created_at=utcnow(),
+            thread_id=thread_id,
+        )
+        self._media_assets[record.asset_id] = record
+        return record
+
+    def list_media_assets(self, agent_instance_id: UUID) -> list[MediaAssetRecord]:
+        records = [
+            item for item in self._media_assets.values() if item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
 
     def list_agent_instances(
         self, user_id: UUID, *, include_archived: bool = False

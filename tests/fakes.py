@@ -59,9 +59,22 @@ class FakeImageClient:
         self.media_root = media_root
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
 
-    def generate(self, prompt: str, params: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        *,
+        user_id: str | None = None,
+        agent_instance_id: str | None = None,
+    ) -> Path:
         self.calls.append((prompt, params))
-        path = allocate_media_path(self.media_root, "images", ".png")
+        path = allocate_media_path(
+            self.media_root,
+            "images",
+            ".png",
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
         path.write_bytes(TINY_PNG)
         return path
 
@@ -71,9 +84,22 @@ class FakeVideoClient:
         self.media_root = media_root
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
 
-    def generate(self, prompt: str, params: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        *,
+        user_id: str | None = None,
+        agent_instance_id: str | None = None,
+    ) -> Path:
         self.calls.append((prompt, params))
-        path = allocate_media_path(self.media_root, "videos", ".mp4")
+        path = allocate_media_path(
+            self.media_root,
+            "videos",
+            ".mp4",
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
         path.write_bytes(DUMMY_MP4)
         return path
 

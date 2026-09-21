@@ -3,18 +3,41 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Annotated, Any
+from uuid import UUID
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.config import get_config
 from langgraph.types import Command, interrupt
 
-from app.knowledge import format_kb_hits
+from app.knowledge import format_kb_hits, kb_namespace, profile_namespace
 from app.knowledge import search_kb as kb_search
 from app.media_paths import media_url_for
+from app.repository import NotFoundError
 
 MEDIA_TOOL_NAMES = {"generate_image", "generate_video"}
 KB_TOOL_NAMES = {"search_kb"}
 PROFILE_NAMESPACE = ("assistant", "profile")
+
+
+def _runtime_configurable() -> dict[str, Any]:
+    try:
+        config = get_config()
+    except Exception:
+        return {}
+    return dict((config or {}).get("configurable") or {})
+
+
+def _owner_ids() -> tuple[str | None, str | None, str | None]:
+    configurable = _runtime_configurable()
+    user_id = configurable.get("user_id")
+    agent_instance_id = configurable.get("agent_instance_id")
+    thread_id = configurable.get("thread_id")
+    return (
+        str(user_id) if user_id else None,
+        str(agent_instance_id) if agent_instance_id else None,
+        str(thread_id) if thread_id else None,
+    )
 
 
 def _decision(
@@ -40,6 +63,31 @@ def _skip_update(tool_name: str, tool_call_id: str) -> dict[str, Any]:
             )
         ]
     }
+
+
+def _record_media_asset(
+    *,
+    business_repo,
+    user_id: str | None,
+    agent_instance_id: str | None,
+    thread_id: str | None,
+    kind: str,
+    path,
+    media_root,
+) -> None:
+    if business_repo is None or not user_id or not agent_instance_id:
+        return
+    try:
+        relative = path.resolve().relative_to(media_root.resolve()).as_posix()
+        business_repo.add_media_asset(
+            UUID(str(user_id)),
+            UUID(str(agent_instance_id)),
+            kind=kind,
+            storage_uri=relative,
+            thread_id=thread_id,
+        )
+    except (NotFoundError, ValueError):
+        return
 
 
 def _media_update(
@@ -80,11 +128,18 @@ def build_tools(
     memory_store=None,
     email_client=None,
     extra_tools=None,
+    business_repo=None,
 ):
     @tool
     def search_kb(query: str, k: int = 4) -> str:
-        """Search the Xiaohongshu operations knowledge base. Only call this when the user explicitly asks to write a Xiaohongshu note."""
-        hits = kb_search(store, query=query, k=int(k or 4))
+        """Search the current agent-instance knowledge base. Only call this for a supplementary lookup."""
+        user_id, agent_instance_id, _thread_id = _owner_ids()
+        namespace = ("kb",)
+        target = store
+        if user_id and agent_instance_id:
+            namespace = kb_namespace(user_id, agent_instance_id)
+            target = memory_store if memory_store is not None else store
+        hits = kb_search(target, query=query, k=int(k or 4), namespace=namespace)
         return format_kb_hits(hits)
 
     @tool
@@ -108,7 +163,22 @@ def build_tools(
         )
         if action in {"skip", "reject", "cancel"}:
             return Command(update=_skip_update("generate_image", tool_call_id))
-        path = image_client.generate(final_prompt, params)
+        user_id, agent_instance_id, thread_id = _owner_ids()
+        path = image_client.generate(
+            final_prompt,
+            params,
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
+        _record_media_asset(
+            business_repo=business_repo,
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+            thread_id=thread_id,
+            kind="image",
+            path=path,
+            media_root=media_root,
+        )
         return Command(
             update=_media_update(
                 tool_name="generate_image",
@@ -141,7 +211,22 @@ def build_tools(
         )
         if action in {"skip", "reject", "cancel"}:
             return Command(update=_skip_update("generate_video", tool_call_id))
-        path = video_client.generate(final_prompt, params)
+        user_id, agent_instance_id, thread_id = _owner_ids()
+        path = video_client.generate(
+            final_prompt,
+            params,
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
+        _record_media_asset(
+            business_repo=business_repo,
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+            thread_id=thread_id,
+            kind="video",
+            path=path,
+            media_root=media_root,
+        )
         return Command(
             update=_media_update(
                 tool_name="generate_video",
@@ -163,14 +248,24 @@ def build_tools(
             text = (fact or "").strip()
             if not text:
                 return "empty fact"
+            user_id, agent_instance_id, _thread_id = _owner_ids()
+            if not user_id or not agent_instance_id:
+                return json.dumps({"ok": False, "error": "missing instance context"}, ensure_ascii=False)
             key = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-            memory_store.put(PROFILE_NAMESPACE, key, {"text": text})
+            memory_store.put(profile_namespace(user_id, agent_instance_id), key, {"text": text})
             return json.dumps({"ok": True, "key": key}, ensure_ascii=False)
 
         @tool
         def recall_facts(query: str = "") -> str:
             """Recall remembered facts about the user."""
-            hits = memory_store.search(PROFILE_NAMESPACE, query=query or None, limit=20)
+            user_id, agent_instance_id, _thread_id = _owner_ids()
+            if not user_id or not agent_instance_id:
+                return "NO_FACTS"
+            hits = memory_store.search(
+                profile_namespace(user_id, agent_instance_id),
+                query=query or None,
+                limit=20,
+            )
             facts = []
             for hit in hits:
                 value = getattr(hit, "value", None) or {}

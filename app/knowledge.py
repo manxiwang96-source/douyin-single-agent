@@ -18,6 +18,10 @@ def kb_namespace(user_id, agent_instance_id) -> tuple[str, str, str]:
     return (str(user_id), str(agent_instance_id), "kb")
 
 
+def profile_namespace(user_id, agent_instance_id) -> tuple[str, str, str]:
+    return (str(user_id), str(agent_instance_id), "profile")
+
+
 def index_markdown_file(store, namespace, path: Path) -> int:
     text = path.read_text(encoding="utf-8")
     count = 0
@@ -97,8 +101,8 @@ def index_knowledge_dir(store: InMemoryStore, knowledge_dir: Path) -> int:
     return count
 
 
-def search_kb(store: InMemoryStore, query: str, k: int = 4) -> list[dict[str, Any]]:
-    hits = store.search(KB_NAMESPACE, query=query, limit=k)
+def search_kb(store, query: str, k: int = 4, namespace=KB_NAMESPACE) -> list[dict[str, Any]]:
+    hits = store.search(namespace, query=query, limit=k)
     results: list[dict[str, Any]] = []
     for hit in hits:
         score = getattr(hit, "score", None)

@@ -15,7 +15,9 @@ def test_unauthenticated_business_routes_are_401(runtime):
     assert client.get("/v1/me").status_code == 401
     assert client.get("/v1/agent-instances").status_code == 401
     assert client.post("/v1/threads").status_code == 401
-    assert client.get("/v1/media/images/demo.png").status_code == 401
+    assert client.get(
+        "/v1/media/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002/images/demo.png"
+    ).status_code == 401
     assert client.post("/v1/assistant/jobs/run", json={"kind": "morning_brief"}).status_code == 401
 
 

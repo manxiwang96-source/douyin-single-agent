@@ -72,7 +72,10 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert media_items
     assert media_items[0]["type"] == "image"
     url = media_items[0]["url"]
-    assert url.startswith("/v1/media/images/")
+    parts = url.strip("/").split("/")
+    assert parts[:2] == ["v1", "media"]
+    assert parts[4] == "images"
+    assert len(parts) == 6
 
     media = client.get(url)
     assert media.status_code == 200

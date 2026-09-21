@@ -7,6 +7,7 @@ from langgraph.types import Command
 
 from app.graph import interrupt_payload
 from tests.fakes import ai_text, ai_tool
+from tests.graph_helpers import graph_config
 
 
 def test_graph_uses_tutorial_nodes(runtime):
@@ -19,7 +20,7 @@ def test_graph_uses_tutorial_nodes(runtime):
 
 def test_bind_tools_disables_parallel_calls(runtime, llm):
     llm.responses = [ai_text("先告诉我产品是什么")]
-    config = {"configurable": {"thread_id": "plain"}}
+    config = graph_config("plain")
     runtime.graph.invoke({"messages": [HumanMessage(content="你好")]}, config)
     assert llm.bind_kwargs.get("parallel_tool_calls") is False
 
@@ -29,7 +30,7 @@ def test_search_kb_runs_without_interrupt(runtime, llm):
         ai_tool("search_kb", {"query": "标题规范", "k": 4}),
         ai_text("【标题】春季补水【正文】先结论【标签】#护肤"),
     ]
-    config = {"configurable": {"thread_id": "kb"}}
+    config = graph_config("kb")
     result = runtime.graph.invoke(
         {"messages": [HumanMessage(content="帮我写一条笔记")]},
         config,
@@ -44,7 +45,7 @@ def test_image_interrupt_approve_calls_client(runtime, llm, image_client):
         ai_tool("generate_image", {"prompt": "3:4 red bottle"}),
         ai_text("已生成配图"),
     ]
-    config = {"configurable": {"thread_id": "img-approve"}}
+    config = graph_config("img-approve")
     runtime.graph.invoke(
         {"messages": [HumanMessage(content="请配一张图")]},
         config,
@@ -74,7 +75,7 @@ def test_image_skip_does_not_call_client(runtime, llm, image_client):
         ai_tool("generate_image", {"prompt": "skip me"}),
         ai_text("已跳过配图"),
     ]
-    config = {"configurable": {"thread_id": "img-skip"}}
+    config = graph_config("img-skip")
     runtime.graph.invoke(
         {"messages": [HumanMessage(content="请配图")]},
         config,
@@ -91,7 +92,7 @@ def test_video_interrupt_approve_calls_client(runtime, llm, video_client):
         ai_tool("generate_video", {"prompt": "9:16 pour"}),
         ai_text("已生成视频"),
     ]
-    config = {"configurable": {"thread_id": "vid-approve"}}
+    config = graph_config("vid-approve")
     runtime.graph.invoke(
         {"messages": [HumanMessage(content="请做视频")]},
         config,
@@ -110,7 +111,7 @@ def test_ainvoke_uses_async_chatbot_path(runtime, llm):
     result = asyncio.run(
         runtime.graph.ainvoke(
             {"messages": [HumanMessage(content="hi")]},
-            {"configurable": {"thread_id": "async-chatbot"}},
+            graph_config("async-chatbot"),
         )
     )
     assert result["messages"][-1].content == "你好"

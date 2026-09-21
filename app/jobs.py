@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.messages import HumanMessage
 
+from app.graph import SCHEDULER_AGENT_INSTANCE_ID, SCHEDULER_USER_ID, build_invoke_config
 from app.mcp_client import DayFacts, run_coroutine
 
 JOBS_NAMESPACE = ("assistant", "jobs")
@@ -92,7 +93,11 @@ async def arun_morning_brief(
         return {"status": "skipped", "reason": "already_sent", "kind": "morning_brief", "date": day}
     facts = await runtime.facts_provider.aget_facts(runtime.settings.assistant_city)
     sent_before = len(getattr(runtime.email_client, "sends", []) or [])
-    config = {"configurable": {"thread_id": f"{MORNING_THREAD_PREFIX}-{day}"}}
+    config = build_invoke_config(
+        thread_id=f"{MORNING_THREAD_PREFIX}-{day}",
+        user_id=SCHEDULER_USER_ID,
+        agent_instance_id=SCHEDULER_AGENT_INSTANCE_ID,
+    )
     timeout = MORNING_BRIEF_GRAPH_TIMEOUT_S if graph_timeout_s is None else graph_timeout_s
     try:
         await asyncio.wait_for(

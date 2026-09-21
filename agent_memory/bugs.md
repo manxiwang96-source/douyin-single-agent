@@ -1,12 +1,11 @@
 # Bugs and Risks
 
 ## Open
-- FastAPI title already says 抖音运营助手, but the graph still has no `discover_douyin_leads` and Streamlit is still the old unauthenticated chat entry until later phases.
+- FastAPI title already says 抖音运营智能体, but `discover_douyin_leads` is still not a ToolNode tool and Streamlit is still the old unauthenticated chat entry until later phases.
 - DifyClient is not wired yet (阶段 4).
 - C HTTP (`DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN`) is empty in local `.env`. User confirmed the Dify workflow has defaults and console runs succeed; worker still must omit empty HTTP fields instead of failing startup.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
-- Existing PROFILE_NAMESPACE / JOBS_NAMESPACE ("assistant", ...) is global and will leak across users until phase 3 lands `(user_id, agent_instance_id, "profile"|"kb")`.
-- Existing media URL `/v1/media/{kind}/{file_name}` is not user/instance isolated until phase 3.
+- Morning-brief JOBS_NAMESPACE ("assistant", "jobs") remains global; conversation profile/KB/media are isolated as of phase 3.
 - Phone-off 08:00 jobs fail if job tables are ever moved to the client.
 - Feishu bot and this worker might both true-send if run together; live phase 7 must stagger with C.
 - `list_comment` / `list_message` / `snapshot` live JSON samples are still unconfirmed; phase 4 writeback is best-effort.
@@ -18,6 +17,7 @@
 ## Closed
 - 阶段 1 business SQL + in-memory repository landed; default pytest still does not open real Postgres.
 - 阶段 2 FastAPI login/plaza/sidebar/open HTTP landed; old POST /v1/threads is no longer the product entry after login.
+- 阶段 3 per-user/instance conversation memory, KB retrieve, media path/URL, and media_assets isolation landed. Graph nodes remain chatbot + tools.
 - Plaza/sidebar, 一人多实例, binding table, instance KB retrieve, and field-level schema are locked in docs/modify/抖音运营智能体修改设计方案（1）.md.
 - Phased execution for a new conversation is locked in stage/README.md and stage/抖音运营智能体分阶段实施套餐.md. Deleted stage1/ is not a source.
 - User confirmed douyin-lead-discovery is published and console-tested; local `.env` has DIFY_API_KEY / DIFY_BASE_URL (values must not be copied into docs or memory).

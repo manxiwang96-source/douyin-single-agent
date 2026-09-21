@@ -42,7 +42,14 @@ class ImageClient:
         payload.update(merged)
         return payload
 
-    def generate(self, prompt: str, params: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        *,
+        user_id: str | None = None,
+        agent_instance_id: str | None = None,
+    ) -> Path:
         payload = self.build_payload(prompt, params)
         url = f"{self.settings.openai_api_base_url}/images/generations"
         headers = {
@@ -56,7 +63,13 @@ class ImageClient:
             raise ImageGenerationError(f"image generation failed: {exc.response.text}") from exc
         data = response.json()
         raw = _extract_image_bytes(data, self.http_client)
-        path = allocate_media_path(self.media_root, "images", ".png")
+        path = allocate_media_path(
+            self.media_root,
+            "images",
+            ".png",
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
         path.write_bytes(raw)
         return path
 

@@ -6,7 +6,6 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
 
 from app.config import Settings, project_root
 from app.embeddings import make_openai_embeddings
@@ -106,7 +105,7 @@ def build_runtime(
         business_repo = memory.repository
     else:
         if memory_store is None:
-            memory_store = InMemoryStore()
+            memory_store = make_store(embeddings.embed_documents, settings.embedding_dims)
         if business_repo is None:
             business_repo = InMemoryBusinessRepository()
 
@@ -137,6 +136,7 @@ def build_runtime(
         memory_store=memory_store,
         email_client=email_client,
         extra_tools=extra_tools,
+        business_repo=business_repo,
     )
     graph = build_graph(
         llm=llm,

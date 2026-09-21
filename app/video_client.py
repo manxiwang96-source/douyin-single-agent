@@ -48,7 +48,14 @@ class VideoClient:
             "parameters": parameters,
         }
 
-    def generate(self, prompt: str, params: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        *,
+        user_id: str | None = None,
+        agent_instance_id: str | None = None,
+    ) -> Path:
         payload = self.build_payload(prompt, params)
         create_url = (
             f"{self.settings.dashscope_endpoint}/services/aigc/video-generation/video-synthesis"
@@ -72,7 +79,13 @@ class VideoClient:
         video_url = self._poll_task(task_id, headers)
         downloaded = self.http_client.get(video_url)
         downloaded.raise_for_status()
-        path = allocate_media_path(self.media_root, "videos", ".mp4")
+        path = allocate_media_path(
+            self.media_root,
+            "videos",
+            ".mp4",
+            user_id=user_id,
+            agent_instance_id=agent_instance_id,
+        )
         path.write_bytes(downloaded.content)
         return path
 

@@ -15,7 +15,10 @@ Read-only catalog `douyin_ops`; Douyin identity prompt; Settings Dify fields; `s
 Business SQL in `app/sql/001_business.sql`. Test repository is `InMemoryBusinessRepository`. Production applies schema, requires pgvector, and uses `PostgresBusinessRepository`. Instance create then Store seed is not one distributed transaction; seed failure marks `agent_knowledge_documents.status=failed` and keeps the instance.
 
 ## Phase 2 landed
-Real `login_name` + PBKDF2 password hash. Bearer session 7 days. Plaza HTTP: list/create/patch/open/sidebar/avatar. Create binds `douyin-lead-discovery` and seeds demo KB. Opening a thread does not bump card `updated_at`. Old unauthenticated `POST /v1/threads` is no longer the product entry. Graph/namespaces/media isolation and DifyClient are later phases.
+Real `login_name` + PBKDF2 password hash. Bearer session 7 days. Plaza HTTP: list/create/patch/open/sidebar/avatar. Create binds `douyin-lead-discovery` and seeds demo KB. Opening a thread does not bump card `updated_at`. Old unauthenticated `POST /v1/threads` is no longer the product entry.
+
+## Phase 3 landed
+`ainvoke` configurable carries `thread_id` / `user_id` / `agent_instance_id` / `allowed_workflow_codes`. Profile memory uses `(user_id, agent_instance_id, "profile")`. Chatbot retrieve and `search_kb` use `(user_id, agent_instance_id, "kb")` and skip re-embedding the last ToolMessage. Media lives under `outputs/{user_id}/{agent_instance_id}/images|videos` with owner ids in the URL; cross-user access is 404/403; anonymous media is 401. `media_assets` is written on generate. Graph nodes remain chatbot + tools. DifyClient is still a later phase.
 
 ## Plaza/sidebar
 一人多实例; unique title per user among non-archived (case-insensitive, no whitespace); card avatar/name/intro/mode/timestamps; sidebar capability_description + development notes + read-only single mode + knowledge panel; no model column; catalog supplies workflow/tool names and user_facing_summary. Chat click does not bump updated_at.

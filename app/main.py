@@ -23,6 +23,7 @@ from app.auth import (
 )
 from app.avatars import AvatarError, avatar_root, resolve_avatar_file, save_avatar
 from app.config import Settings
+from app.graph import build_invoke_config
 from app.jobs import arun_hydrate, arun_morning_brief, acatch_up_jobs
 from app.media_paths import MediaPathError, safe_media_file
 from app.plaza import (
@@ -158,7 +159,17 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         return record
 
     async def _arun(thread_id: str, payload) -> dict[str, Any]:
-        config = {"configurable": {"thread_id": thread_id}}
+        thread = repo.get_app_thread(thread_id)
+        if thread is None:
+            raise _http_error(404, "thread not found")
+        bindings = repo.list_workflow_bindings(thread.agent_instance_id)
+        allowed = [item.workflow_code for item in bindings if item.enabled]
+        config = build_invoke_config(
+            thread_id=thread_id,
+            user_id=thread.user_id,
+            agent_instance_id=thread.agent_instance_id,
+            allowed_workflow_codes=allowed,
+        )
         await runtime.graph.ainvoke(payload, config)
         return serialize_thread(runtime, thread_id)
 
@@ -373,10 +384,34 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
                 raise _http_error(400, str(exc)) from exc
         raise _http_error(400, "kind must be morning_brief or hydrate")
 
-    @app.get("/v1/media/{kind}/{file_name}")
-    def get_media(kind: str, file_name: str, user: UserRecord = Depends(_auth_user)):
+    @app.get("/v1/media/{user_id}/{agent_instance_id}/{kind}/{file_name}")
+    def get_media(
+        user_id: str,
+        agent_instance_id: str,
+        kind: str,
+        file_name: str,
+        user: UserRecord = Depends(_auth_user),
+    ):
+        if str(user.user_id) != str(user_id):
+            raise _http_error(404, "media not found")
         try:
-            path = safe_media_file(runtime.media_root, kind, file_name)
+            instance_uuid = UUID(str(agent_instance_id))
+        except ValueError as exc:
+            raise _http_error(404, "media not found") from exc
+        try:
+            instance = require_owned_instance(repo, user.user_id, instance_uuid)
+        except NotFoundError as exc:
+            raise _http_error(404, "media not found") from exc
+        if str(instance.user_id) != str(user.user_id):
+            raise _http_error(403, "media forbidden")
+        try:
+            path = safe_media_file(
+                runtime.media_root,
+                kind,
+                file_name,
+                user_id=str(user.user_id),
+                agent_instance_id=str(instance.agent_instance_id),
+            )
         except FileNotFoundError:
             raise _http_error(404, "media not found") from None
         except MediaPathError:

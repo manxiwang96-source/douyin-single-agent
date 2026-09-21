@@ -1,10 +1,10 @@
 # Progress
 
 ## Current task
-已丢弃未入库 Stage 1 交接。
+已写入 stage/ 分阶段实施套餐，供新对话按阶段执行。
 
 ## Status
-已删除未跟踪的 stage1/ 与 tests/test_stage1_doc.py。agent_memory / memory-bank 已还原，执行入口回到 docs/modify/抖音运营智能体修改设计方案（1）.md。工人业务代码未改。
+工人业务代码仍是个人超级助理。产品锁定仍是修改设计方案；执行切分以 stage/README.md 与 stage/抖音运营智能体分阶段实施套餐.md 为准。未开始阶段 0。
 
 ## Next
-不要把 Stage 1 当源。后续实现仍以修改设计方案为准。不启动工人 SQL/Dify 客户端，除非用户明确要求。
+新开对话从阶段 0（文档与配置）开始，一次只做一阶段。不要把 stage1/ 当源。不要在未到阶段 7 时打真实 Dify。

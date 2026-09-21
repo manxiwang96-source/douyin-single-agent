@@ -21,6 +21,9 @@ from app.repository import (
     KnowledgeSeed,
     NotFoundError,
     RepositoryError,
+    SessionRecord,
+    ThreadRecord,
+    UNSET,
     UserRecord,
     WorkflowBindingRecord,
     AgentInstanceRecord,
@@ -32,6 +35,7 @@ from app.repository import (
     JOB_RUN_STATUSES,
     KNOWLEDGE_SOURCES,
     KNOWLEDGE_STATUSES,
+    THREAD_STATUSES,
     USER_STATUSES,
     utcnow,
     as_utc,
@@ -79,6 +83,55 @@ class PostgresBusinessRepository:
     def get_user(self, user_id: UUID) -> UserRecord | None:
         row = self._fetch_one("SELECT * FROM app_users WHERE user_id = %s", (user_id,), missing_ok=True)
         return None if row is None else _user_from_row(row)
+
+    def get_user_by_login_name(self, login_name: str) -> UserRecord | None:
+        name = (login_name or "").strip()
+        row = self._fetch_one(
+            "SELECT * FROM app_users WHERE login_name = %s",
+            (name,),
+            missing_ok=True,
+        )
+        return None if row is None else _user_from_row(row)
+
+    def set_user_last_login(self, user_id: UUID, at: datetime | None = None) -> UserRecord:
+        row = self._fetch_one(
+            """
+            UPDATE app_users
+            SET last_login_at = %s
+            WHERE user_id = %s
+            RETURNING *
+            """,
+            (as_utc(at or utcnow()), user_id),
+            missing_ok=True,
+        )
+        if row is None:
+            raise NotFoundError(f"user not found: {user_id}")
+        return _user_from_row(row)
+
+    def create_session(self, user_id: UUID, token_hash: str, expires_at: datetime) -> SessionRecord:
+        if not token_hash:
+            raise RepositoryError("token_hash is required")
+        sql = """
+            INSERT INTO app_sessions (session_id, user_id, token_hash, expires_at, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+        """
+        row = self._fetch_one(
+            sql,
+            (uuid4(), user_id, token_hash, as_utc(expires_at), utcnow()),
+        )
+        return _session_from_row(row)
+
+    def get_session_by_token_hash(self, token_hash: str) -> SessionRecord | None:
+        row = self._fetch_one(
+            "SELECT * FROM app_sessions WHERE token_hash = %s",
+            (token_hash,),
+            missing_ok=True,
+        )
+        return None if row is None else _session_from_row(row)
+
+    def delete_session(self, session_id: UUID) -> None:
+        self._execute("DELETE FROM app_sessions WHERE session_id = %s", (session_id,))
 
     def create_agent_instance(
         self,
@@ -129,6 +182,58 @@ class PostgresBusinessRepository:
         )
         return None if row is None else _instance_from_row(row)
 
+    def list_agent_instances(
+        self, user_id: UUID, *, include_archived: bool = False
+    ) -> list[AgentInstanceRecord]:
+        if include_archived:
+            sql = "SELECT * FROM agent_instances WHERE user_id = %s ORDER BY created_at"
+            rows = self._fetch_all(sql, (user_id,))
+        else:
+            sql = """
+                SELECT * FROM agent_instances
+                WHERE user_id = %s AND status <> 'archived'
+                ORDER BY created_at
+            """
+            rows = self._fetch_all(sql, (user_id,))
+        return [_instance_from_row(row) for row in rows]
+
+    def update_agent_instance(
+        self,
+        agent_instance_id: UUID,
+        user_id: UUID,
+        *,
+        title: str | None | object = UNSET,
+        intro: str | None | object = UNSET,
+        avatar_uri: str | None | object = UNSET,
+    ) -> AgentInstanceRecord:
+        current = self.get_agent_instance(agent_instance_id)
+        if current is None or current.user_id != user_id:
+            raise NotFoundError(f"agent instance not found: {agent_instance_id}")
+        new_title = current.title
+        new_intro = current.intro
+        new_avatar = current.avatar_uri
+        if title is not UNSET:
+            new_title = normalize_agent_title(str(title or ""))
+        if intro is not UNSET:
+            new_intro = intro or ""
+        if avatar_uri is not UNSET:
+            new_avatar = avatar_uri
+        if new_title == current.title and new_intro == current.intro and new_avatar == current.avatar_uri:
+            return current
+        row = self._fetch_one(
+            """
+            UPDATE agent_instances
+            SET title = %s, intro = %s, avatar_uri = %s, updated_at = %s
+            WHERE agent_instance_id = %s AND user_id = %s
+            RETURNING *
+            """,
+            (new_title, new_intro, new_avatar, utcnow(), agent_instance_id, user_id),
+            missing_ok=True,
+        )
+        if row is None:
+            raise NotFoundError(f"agent instance not found: {agent_instance_id}")
+        return _instance_from_row(row)
+
     def archive_agent_instance(self, agent_instance_id: UUID) -> AgentInstanceRecord:
         row = self._fetch_one(
             """
@@ -167,6 +272,17 @@ class PostgresBusinessRepository:
             (uuid4(), user_id, agent_instance_id, code, enabled, utcnow()),
         )
         return _binding_from_row(row)
+
+    def list_workflow_bindings(self, agent_instance_id: UUID) -> list[WorkflowBindingRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM agent_instance_workflows
+            WHERE agent_instance_id = %s
+            ORDER BY created_at
+            """,
+            (agent_instance_id,),
+        )
+        return [_binding_from_row(row) for row in rows]
 
     def create_job_definition(
         self,
@@ -337,6 +453,85 @@ class PostgresBusinessRepository:
             seeded.append(record)
         return seeded
 
+    def list_knowledge_documents(self, agent_instance_id: UUID) -> list[KnowledgeDocumentRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM agent_knowledge_documents
+            WHERE agent_instance_id = %s
+            ORDER BY created_at
+            """,
+            (agent_instance_id,),
+        )
+        return [_document_from_row(row) for row in rows]
+
+    def create_app_thread(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        thread_id: str | None = None,
+        title: str | None = None,
+        status: str = "active",
+    ) -> ThreadRecord:
+        require_value(status, THREAD_STATUSES, "thread status")
+        now = utcnow()
+        sql = """
+            INSERT INTO app_threads (
+                thread_id, user_id, agent_instance_id, title, status, created_at, last_active_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+        """
+        row = self._fetch_one(
+            sql,
+            (thread_id or str(uuid4()), user_id, agent_instance_id, title, status, now, now),
+        )
+        return _thread_from_row(row)
+
+    def get_app_thread(self, thread_id: str) -> ThreadRecord | None:
+        row = self._fetch_one(
+            "SELECT * FROM app_threads WHERE thread_id = %s",
+            (thread_id,),
+            missing_ok=True,
+        )
+        return None if row is None else _thread_from_row(row)
+
+    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None:
+        row = self._fetch_one(
+            """
+            SELECT * FROM app_threads
+            WHERE user_id = %s AND agent_instance_id = %s AND status = 'active'
+            ORDER BY last_active_at DESC, created_at DESC
+            LIMIT 1
+            """,
+            (user_id, agent_instance_id),
+            missing_ok=True,
+        )
+        return None if row is None else _thread_from_row(row)
+
+    def _execute(self, sql: str, params=()) -> None:
+        try:
+            with self.pool.connection() as conn:
+                conn.execute(sql, params)
+        except UniqueViolation as exc:
+            raise _map_unique_violation(exc) from exc
+        except CheckViolation as exc:
+            raise _map_check_violation(exc) from exc
+        except ForeignKeyViolation as exc:
+            raise NotFoundError(str(exc)) from exc
+
+    def _fetch_all(self, sql: str, params=()):
+        try:
+            with self.pool.connection() as conn:
+                result = conn.execute(sql, params)
+                return list(result.fetchall()) if result is not None else []
+        except UniqueViolation as exc:
+            raise _map_unique_violation(exc) from exc
+        except CheckViolation as exc:
+            raise _map_check_violation(exc) from exc
+        except ForeignKeyViolation as exc:
+            raise NotFoundError(str(exc)) from exc
+
     def _fetch_one(self, sql: str, params=(), *, missing_ok: bool = False):
         try:
             with self.pool.connection() as conn:
@@ -375,6 +570,28 @@ def _map_check_violation(exc: CheckViolation) -> RepositoryError:
 
 def _as_uuid(value) -> UUID:
     return value if isinstance(value, UUID) else UUID(str(value))
+
+
+def _session_from_row(row) -> SessionRecord:
+    return SessionRecord(
+        session_id=_as_uuid(row["session_id"]),
+        user_id=_as_uuid(row["user_id"]),
+        token_hash=row["token_hash"],
+        expires_at=row["expires_at"],
+        created_at=row["created_at"],
+    )
+
+
+def _thread_from_row(row) -> ThreadRecord:
+    return ThreadRecord(
+        thread_id=str(row["thread_id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        title=row.get("title"),
+        status=row["status"],
+        created_at=row["created_at"],
+        last_active_at=row["last_active_at"],
+    )
 
 
 def _user_from_row(row) -> UserRecord:

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
-from app.main import create_app
 from tests.fakes import DUMMY_MP4, TINY_PNG, ai_text, ai_tool
+from tests.http_helpers import create_and_open, make_client, register_and_login
 
 
 def test_import_main_does_not_boot_runtime():
@@ -13,7 +11,7 @@ def test_import_main_does_not_boot_runtime():
 
 
 def test_health_and_config(runtime):
-    client = TestClient(create_app(runtime))
+    client = make_client(runtime)
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
@@ -26,23 +24,28 @@ def test_health_and_config(runtime):
     assert body["video_resolution"] == "480P"
 
 
+def _open_thread(runtime):
+    client = make_client(runtime)
+    register_and_login(client)
+    opened = create_and_open(client, title="agent-chat")
+    return client, opened["thread_id"]
+
+
 def test_thread_message_resume_and_media(runtime, llm, image_client, media_root):
     llm.responses = [
         ai_tool("generate_image", {"prompt": "bottle"}),
-        ai_text("配图已就绪"),
+        ai_text("image ready"),
     ]
-    client = TestClient(create_app(runtime))
-    created = client.post("/v1/threads")
-    assert created.status_code == 200
-    thread_id = created.json()["id"]
+    client, thread_id = _open_thread(runtime)
 
     empty = client.get(f"/v1/threads/{thread_id}")
     assert empty.status_code == 200
     assert empty.json()["status"] == "idle"
+    assert empty.json()["id"] == thread_id
 
     interrupted = client.post(
         f"/v1/threads/{thread_id}/messages",
-        json={"content": "请配图"},
+        json={"content": "draw an image"},
     )
     assert interrupted.status_code == 200
     body = interrupted.json()
@@ -52,7 +55,7 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
 
     blocked = client.post(
         f"/v1/threads/{thread_id}/messages",
-        json={"content": "再发一条"},
+        json={"content": "another one"},
     )
     assert blocked.status_code == 409
 
@@ -81,11 +84,10 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
 def test_skip_resume_has_no_media_url(runtime, llm, image_client):
     llm.responses = [
         ai_tool("generate_image", {"prompt": "skip"}),
-        ai_text("已跳过"),
+        ai_text("skipped"),
     ]
-    client = TestClient(create_app(runtime))
-    thread_id = client.post("/v1/threads").json()["id"]
-    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "图"})
+    client, thread_id = _open_thread(runtime)
+    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "image"})
     resumed = client.post(
         f"/v1/threads/{thread_id}/resume",
         json={"action": "skip"},
@@ -103,11 +105,10 @@ def test_skip_resume_has_no_media_url(runtime, llm, image_client):
 def test_video_media_content_type(runtime, llm, video_client):
     llm.responses = [
         ai_tool("generate_video", {"prompt": "pour"}),
-        ai_text("视频好了"),
+        ai_text("video ready"),
     ]
-    client = TestClient(create_app(runtime))
-    thread_id = client.post("/v1/threads").json()["id"]
-    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "视频"})
+    client, thread_id = _open_thread(runtime)
+    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "video"})
     resumed = client.post(
         f"/v1/threads/{thread_id}/resume",
         json={"action": "approve"},
@@ -125,6 +126,7 @@ def test_video_media_content_type(runtime, llm, video_client):
 
 
 def test_unknown_thread_404(runtime):
-    client = TestClient(create_app(runtime))
+    client = make_client(runtime)
+    register_and_login(client)
     response = client.get("/v1/threads/missing")
     assert response.status_code == 404

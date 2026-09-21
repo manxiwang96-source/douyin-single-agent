@@ -17,6 +17,11 @@ from tests.fakes import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _fast_password_hash(monkeypatch):
+    monkeypatch.setattr("app.auth.DEFAULT_ITERATIONS", 2_000)
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(

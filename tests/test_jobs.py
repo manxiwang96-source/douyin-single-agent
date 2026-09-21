@@ -4,12 +4,11 @@ import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.jobs import catch_up_jobs, run_hydrate, run_morning_brief
-from app.main import create_app
 from tests.fakes import ai_text, ai_tool
+from tests.http_helpers import make_client, register_and_login
 
 
 def test_morning_brief_runs_at_3am(runtime, llm, email_client):
@@ -100,7 +99,8 @@ def test_jobs_api_morning_brief(runtime, llm, email_client):
         ai_tool("send_email", {"subject": "晨间简报", "body": "建议"}),
         ai_text("已发送"),
     ]
-    client = TestClient(create_app(runtime))
+    client = make_client(runtime)
+    register_and_login(client)
     response = client.post("/v1/assistant/jobs/run", json={"kind": "morning_brief", "force": True})
     assert response.status_code == 200
     body = response.json()
@@ -110,7 +110,8 @@ def test_jobs_api_morning_brief(runtime, llm, email_client):
 
 
 def test_jobs_api_hydrate_requires_slot(runtime):
-    client = TestClient(create_app(runtime))
+    client = make_client(runtime)
+    register_and_login(client)
     response = client.post("/v1/assistant/jobs/run", json={"kind": "hydrate"})
     assert response.status_code == 400
 

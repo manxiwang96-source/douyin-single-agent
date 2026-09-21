@@ -56,6 +56,6 @@ Current target is 抖音运营智能体, but this file remains the 个人超级�
 Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
 Execute the upgrade one phase at a time from stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
 
-阶段 0 landed docs/config. 阶段 1 landed business SQL + in-memory/Postgres repositories and production pgvector/schema startup. Do not rewrite this file as if plaza, DifyClient, or namespace isolation have replaced the assistant graph; those are later phases.
+阶段 0 landed docs/config. 阶段 1 landed business SQL + in-memory/Postgres repositories and production pgvector/schema startup. 阶段 2 landed FastAPI login/register/logout/me and plaza HTTP (create/list/patch/open/sidebar/avatar) with Bearer sessions; creating a douyin_ops instance binds douyin-lead-discovery and seeds demo KB. Do not rewrite this file as if DifyClient or namespace isolation have replaced the 个人超级助理 graph; those are later phases. Streamlit is still the old unauthenticated chat entry.
 
 That doc's client entry is 登录 → 新建智能体（一人多实例，填名称/简介/头像）→ 点卡片用这个智能体 → 对话+只读侧边栏; 能力只展示、不勾选; `ainvoke` will carry `thread_id` / `user_id` / `agent_instance_id`. Graph nodes stay unchanged. Retrieve happens inside chatbot against the instance KB. v1 Dify contract is one tool `discover_douyin_leads` over `douyin-lead-discovery` with `no_send=false`, transport `POST /v1/workflows/run` + Service API key; `difyctl` is retired; Dify stays in ToolNode, not MCP. Comment/DM HITL tables exist but v1 does not review outbound Douyin. `DIFY_LIVE_ENABLED` stays false until phase 7.

@@ -14,6 +14,21 @@ DEFAULT_CHUNK_OVERLAP = 80
 KB_NAMESPACE = ("kb",)
 
 
+def kb_namespace(user_id, agent_instance_id) -> tuple[str, str, str]:
+    return (str(user_id), str(agent_instance_id), "kb")
+
+
+def index_markdown_file(store, namespace, path: Path) -> int:
+    text = path.read_text(encoding="utf-8")
+    count = 0
+    for chunk in split_markdown(text, path.name):
+        store.put(namespace, chunk["chunk_id"], chunk)
+        count += 1
+    if count == 0:
+        raise RuntimeError(f"no knowledge chunks indexed from {path}")
+    return count
+
+
 def split_markdown(text: str, source: str) -> list[dict[str, str]]:
     chunks: list[dict[str, str]] = []
     parts = PRIMARY_SPLIT.split(text or "")

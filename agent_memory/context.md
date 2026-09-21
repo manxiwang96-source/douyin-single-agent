@@ -12,7 +12,10 @@ Do not treat deleted stage1/ as source. Do not edit C's Dify.
 Read-only catalog `douyin_ops`; Douyin identity prompt; Settings Dify fields; `scheduler_enabled` default false; `knowledge/douyin_ops_demo`; FastAPI/Streamlit title copy. Runtime graph/API/memory namespaces are still the personal assistant.
 
 ## Phase 1 landed
-Business SQL in `app/sql/001_business.sql`. Test repository is `InMemoryBusinessRepository`. Production applies schema, requires pgvector, and uses `PostgresBusinessRepository`. Instance create then Store seed is not one distributed transaction; seed failure marks `agent_knowledge_documents.status=failed` and keeps the instance. FastAPI login/plaza and DifyClient are still later phases.
+Business SQL in `app/sql/001_business.sql`. Test repository is `InMemoryBusinessRepository`. Production applies schema, requires pgvector, and uses `PostgresBusinessRepository`. Instance create then Store seed is not one distributed transaction; seed failure marks `agent_knowledge_documents.status=failed` and keeps the instance.
+
+## Phase 2 landed
+Real `login_name` + PBKDF2 password hash. Bearer session 7 days. Plaza HTTP: list/create/patch/open/sidebar/avatar. Create binds `douyin-lead-discovery` and seeds demo KB. Opening a thread does not bump card `updated_at`. Old unauthenticated `POST /v1/threads` is no longer the product entry. Graph/namespaces/media isolation and DifyClient are later phases.
 
 ## Plaza/sidebar
 一人多实例; unique title per user among non-archived (case-insensitive, no whitespace); card avatar/name/intro/mode/timestamps; sidebar capability_description + development notes + read-only single mode + knowledge panel; no model column; catalog supplies workflow/tool names and user_facing_summary. Chat click does not bump updated_at.

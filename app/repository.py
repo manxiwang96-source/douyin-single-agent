@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Callable, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 from uuid import UUID, uuid4
 
 DOUYIN_OPS_TEMPLATE = "douyin_ops"
@@ -27,6 +27,8 @@ JOB_RUN_STATUSES = frozenset(
 )
 KNOWLEDGE_SOURCES = frozenset({"seeded_demo", "user_upload"})
 KNOWLEDGE_STATUSES = frozenset({"uploaded", "indexing", "ready", "failed", "archived"})
+THREAD_STATUSES = frozenset({"active", "interrupted", "closed", "archived"})
+UNSET = object()
 
 
 class RepositoryError(Exception):
@@ -148,6 +150,26 @@ class KnowledgeSeed:
     source: str = "seeded_demo"
 
 
+@dataclass(frozen=True)
+class SessionRecord:
+    session_id: UUID
+    user_id: UUID
+    token_hash: str
+    expires_at: datetime
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class ThreadRecord:
+    thread_id: str
+    user_id: UUID
+    agent_instance_id: UUID
+    title: str | None
+    status: str
+    created_at: datetime
+    last_active_at: datetime
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -180,6 +202,16 @@ class BusinessRepository(Protocol):
 
     def get_user(self, user_id: UUID) -> UserRecord | None: ...
 
+    def get_user_by_login_name(self, login_name: str) -> UserRecord | None: ...
+
+    def set_user_last_login(self, user_id: UUID, at: datetime | None = None) -> UserRecord: ...
+
+    def create_session(self, user_id: UUID, token_hash: str, expires_at: datetime) -> SessionRecord: ...
+
+    def get_session_by_token_hash(self, token_hash: str) -> SessionRecord | None: ...
+
+    def delete_session(self, session_id: UUID) -> None: ...
+
     def create_agent_instance(
         self,
         user_id: UUID,
@@ -194,6 +226,20 @@ class BusinessRepository(Protocol):
 
     def get_agent_instance(self, agent_instance_id: UUID) -> AgentInstanceRecord | None: ...
 
+    def list_agent_instances(
+        self, user_id: UUID, *, include_archived: bool = False
+    ) -> list[AgentInstanceRecord]: ...
+
+    def update_agent_instance(
+        self,
+        agent_instance_id: UUID,
+        user_id: UUID,
+        *,
+        title: str | None | object = UNSET,
+        intro: str | None | object = UNSET,
+        avatar_uri: str | None | object = UNSET,
+    ) -> AgentInstanceRecord: ...
+
     def archive_agent_instance(self, agent_instance_id: UUID) -> AgentInstanceRecord: ...
 
     def bind_workflow(
@@ -204,6 +250,8 @@ class BusinessRepository(Protocol):
         *,
         enabled: bool = True,
     ) -> WorkflowBindingRecord: ...
+
+    def list_workflow_bindings(self, agent_instance_id: UUID) -> list[WorkflowBindingRecord]: ...
 
     def create_job_definition(
         self,
@@ -251,6 +299,22 @@ class BusinessRepository(Protocol):
         write_store: Callable[[KnowledgeDocumentRecord], None] | None = None,
     ) -> list[KnowledgeDocumentRecord]: ...
 
+    def list_knowledge_documents(self, agent_instance_id: UUID) -> list[KnowledgeDocumentRecord]: ...
+
+    def create_app_thread(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        thread_id: str | None = None,
+        title: str | None = None,
+        status: str = "active",
+    ) -> ThreadRecord: ...
+
+    def get_app_thread(self, thread_id: str) -> ThreadRecord | None: ...
+
+    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None: ...
+
 
 class InMemoryBusinessRepository:
     """Test repository that mirrors SQL uniqueness and naming rules."""
@@ -262,6 +326,8 @@ class InMemoryBusinessRepository:
         self._jobs: dict[UUID, JobDefinitionRecord] = {}
         self._job_runs: dict[UUID, JobRunRecord] = {}
         self._documents: dict[UUID, KnowledgeDocumentRecord] = {}
+        self._sessions: dict[UUID, SessionRecord] = {}
+        self._threads: dict[str, ThreadRecord] = {}
 
     def create_user(self, login_name: str, password_hash: str, *, status: str = "active") -> UserRecord:
         name = (login_name or "").strip()
@@ -284,6 +350,44 @@ class InMemoryBusinessRepository:
 
     def get_user(self, user_id: UUID) -> UserRecord | None:
         return self._users.get(user_id)
+
+    def get_user_by_login_name(self, login_name: str) -> UserRecord | None:
+        name = (login_name or "").strip()
+        for item in self._users.values():
+            if item.login_name == name:
+                return item
+        return None
+
+    def set_user_last_login(self, user_id: UUID, at: datetime | None = None) -> UserRecord:
+        user = self._require_user(user_id)
+        updated = replace(user, last_login_at=as_utc(at or utcnow()))
+        self._users[user_id] = updated
+        return updated
+
+    def create_session(self, user_id: UUID, token_hash: str, expires_at: datetime) -> SessionRecord:
+        self._require_user(user_id)
+        if not token_hash:
+            raise RepositoryError("token_hash is required")
+        if any(item.token_hash == token_hash for item in self._sessions.values()):
+            raise RepositoryError("token_hash already exists")
+        record = SessionRecord(
+            session_id=uuid4(),
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=as_utc(expires_at),
+            created_at=utcnow(),
+        )
+        self._sessions[record.session_id] = record
+        return record
+
+    def get_session_by_token_hash(self, token_hash: str) -> SessionRecord | None:
+        for item in self._sessions.values():
+            if item.token_hash == token_hash:
+                return item
+        return None
+
+    def delete_session(self, session_id: UUID) -> None:
+        self._sessions.pop(session_id, None)
 
     def create_agent_instance(
         self,
@@ -321,6 +425,32 @@ class InMemoryBusinessRepository:
     def get_agent_instance(self, agent_instance_id: UUID) -> AgentInstanceRecord | None:
         return self._instances.get(agent_instance_id)
 
+    def update_agent_instance(
+        self,
+        agent_instance_id: UUID,
+        user_id: UUID,
+        *,
+        title: str | None | object = UNSET,
+        intro: str | None | object = UNSET,
+        avatar_uri: str | None | object = UNSET,
+    ) -> AgentInstanceRecord:
+        record = self._require_instance(agent_instance_id, user_id)
+        changes: dict[str, Any] = {}
+        if title is not UNSET:
+            normalized = normalize_agent_title(str(title or ""))
+            if normalized != record.title:
+                self._assert_title_available(user_id, normalized, exclude=agent_instance_id)
+            changes["title"] = normalized
+        if intro is not UNSET:
+            changes["intro"] = intro or ""
+        if avatar_uri is not UNSET:
+            changes["avatar_uri"] = avatar_uri
+        if not changes:
+            return record
+        updated = replace(record, **changes, updated_at=utcnow())
+        self._instances[agent_instance_id] = updated
+        return updated
+
     def archive_agent_instance(self, agent_instance_id: UUID) -> AgentInstanceRecord:
         record = self._instances.get(agent_instance_id)
         if record is None:
@@ -356,6 +486,12 @@ class InMemoryBusinessRepository:
         )
         self._bindings[record.id] = record
         return record
+
+    def list_workflow_bindings(self, agent_instance_id: UUID) -> list[WorkflowBindingRecord]:
+        records = [
+            item for item in self._bindings.values() if item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
 
     def create_job_definition(
         self,
@@ -491,6 +627,53 @@ class InMemoryBusinessRepository:
             seeded.append(record)
         return seeded
 
+    def list_knowledge_documents(self, agent_instance_id: UUID) -> list[KnowledgeDocumentRecord]:
+        records = [
+            item for item in self._documents.values() if item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def create_app_thread(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        thread_id: str | None = None,
+        title: str | None = None,
+        status: str = "active",
+    ) -> ThreadRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(status, THREAD_STATUSES, "thread status")
+        now = utcnow()
+        record = ThreadRecord(
+            thread_id=thread_id or str(uuid4()),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            title=title,
+            status=status,
+            created_at=now,
+            last_active_at=now,
+        )
+        if record.thread_id in self._threads:
+            raise RepositoryError(f"thread already exists: {record.thread_id}")
+        self._threads[record.thread_id] = record
+        return record
+
+    def get_app_thread(self, thread_id: str) -> ThreadRecord | None:
+        return self._threads.get(thread_id)
+
+    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None:
+        records = [
+            item
+            for item in self._threads.values()
+            if item.user_id == user_id
+            and item.agent_instance_id == agent_instance_id
+            and item.status == "active"
+        ]
+        if not records:
+            return None
+        return sorted(records, key=lambda item: (item.last_active_at, item.created_at), reverse=True)[0]
+
     def list_agent_instances(
         self, user_id: UUID, *, include_archived: bool = False
     ) -> list[AgentInstanceRecord]:
@@ -511,9 +694,13 @@ class InMemoryBusinessRepository:
             raise NotFoundError(f"agent instance not found: {agent_instance_id}")
         return record
 
-    def _assert_title_available(self, user_id: UUID, title: str) -> None:
+    def _assert_title_available(
+        self, user_id: UUID, title: str, *, exclude: UUID | None = None
+    ) -> None:
         needle = title.lower()
         for record in self._instances.values():
+            if exclude is not None and record.agent_instance_id == exclude:
+                continue
             if (
                 record.user_id == user_id
                 and record.status != "archived"

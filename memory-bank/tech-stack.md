@@ -16,3 +16,4 @@
 - pytest fully mocked by default; `RUN_LIVE_ASSISTANT=1` and `RUN_LIVE_API=1` optional live gates
 
 Framework pages are reference-only; do not copy tutorial graphs, `create_react_agent`, or streamable-http weather demos.
+Next upgrade (not current runtime): 抖音运营智能体. Catalog template `douyin_ops`; tool `discover_douyin_leads` over workflow `douyin-lead-discovery`. Settings include `DIFY_LIVE_ENABLED` default false. 阶段 0 is docs/config only (catalog, prompt, demo KB, default-disable scheduler). Do not treat later plaza/SQL/DifyClient as already landed.

@@ -29,4 +29,13 @@ Each step is independently verifiable. Do not paste langgraph.com.cn samples. Se
 
 ## Next upgrade
 
-Stop following the assistant-upgrade steps above for new work. The locked Douyin worker redesign is `docs/modify/抖音运营智能体修改设计方案（1）.md`. Implement in the order listed there: one Dify tool over HTTP `POST /v1/workflows/run` + `DIFY_API_KEY` (not `difyctl`), true-send (`no_send=false`), no comment/DM review API, job tables first. Do not start Dify/job business code before that doc is the source of truth. Phased execution for a new conversation is stage/README.md plus stage/抖音运营智能体分阶段实施套餐.md; do not treat deleted stage1/ as source. Product decisions still come from the modify design doc.
+Current target is 抖音运营智能体. Stop following the assistant-upgrade steps above for new work.
+
+Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
+Phased execution for a new conversation is stage/README.md plus stage/抖音运营智能体分阶段实施套餐.md; do not treat deleted stage1/ as source.
+
+v1 template `douyin_ops`; one Dify tool `discover_douyin_leads` over `douyin-lead-discovery`; HTTP `POST /v1/workflows/run` + `DIFY_API_KEY` (not `difyctl`); true-send (`no_send=false`); `DIFY_LIVE_ENABLED` default false until phase 7.
+
+阶段 0 only: memory-bank, Settings, read-only catalog, prompt, demo KB, default-disable scheduler. Do not start SQL / DifyClient / plaza in this phase.
+
+Do not start Dify/job business code before that doc is the source of truth. Product decisions still come from the modify design doc.

@@ -6,26 +6,26 @@ from app.main import create_app
 from app.prompts import SYSTEM_PROMPT
 
 
-def test_system_prompt_is_personal_assistant():
-    assert "个人超级助理" in SYSTEM_PROMPT
-    assert "你是小红书运营助手" not in SYSTEM_PROMPT
-    assert "不是小红书运营助手" in SYSTEM_PROMPT
-    assert "search_kb" in SYSTEM_PROMPT
-    assert "【标题】" in SYSTEM_PROMPT
-    assert "【正文】" in SYSTEM_PROMPT
-    assert "【标签】" in SYSTEM_PROMPT
-    assert "明确要求" in SYSTEM_PROMPT
-    assert "禁止调用 search_kb" in SYSTEM_PROMPT or "禁止搜" in SYSTEM_PROMPT
+def test_system_prompt_is_douyin_operations_assistant():
+    assert "抖音运营助手" in SYSTEM_PROMPT
+    assert "会真实发送" in SYSTEM_PROMPT
+    assert "discover_douyin_leads" in SYSTEM_PROMPT
+    assert "douyin-lead-discovery" in SYSTEM_PROMPT
+    assert "实例知识库" in SYSTEM_PROMPT
+    assert "不能代替真实扫描" in SYSTEM_PROMPT
+    assert "小红书【标题】【正文】【标签】模板" in SYSTEM_PROMPT
+    assert "【标题】" not in SYSTEM_PROMPT.replace("小红书【标题】【正文】【标签】模板", "")
+    assert "不是小红书运营助手" not in SYSTEM_PROMPT
 
 
-def test_fastapi_title_is_personal_assistant(runtime):
+def test_fastapi_title_is_douyin_operations_assistant(runtime):
     app = create_app(runtime)
-    assert app.title == "个人超级助理"
+    assert app.title == "抖音运营助手"
 
 
-def test_streamlit_title_is_personal_assistant():
+def test_streamlit_title_is_douyin_operations_assistant():
     text = Path("ui/streamlit_app.py").read_text(encoding="utf-8")
-    assert 'st.title("个人超级助理")' in text
-    assert "个人超级助理" in text
+    assert 'st.title("抖音运营助手")' in text
+    assert "抖音运营助手" in text
     assert "小红书运营助手" not in text
     assert "Xiaohongshu Ops Assistant" not in text

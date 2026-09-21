@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     postgres_uri: str = ""
     assistant_city: str = "广州"
     assistant_timezone: str = "Asia/Shanghai"
-    scheduler_enabled: bool = True
+    scheduler_enabled: bool = False
     mcp_enabled: bool = True
 
     smtp_host: str = "smtp.163.com"
@@ -81,11 +81,21 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_to: str = ""
 
+    dify_base_url: str = "http://192.168.1.158/v1"
+    dify_api_key: str = ""
+    dify_lead_app_id: str = "douyin-lead-discovery"
+    douyin_http_base_url: str = ""
+    douyin_http_api_token: str = ""
+    dify_timeout_s: float = 300
+    dify_live_enabled: bool = False
+
     @field_validator(
         "embedding_base_url",
         "openai_api_base_url",
         "dashscope_endpoint",
         "streamlit_api_base",
+        "dify_base_url",
+        "douyin_http_base_url",
     )
     @classmethod
     def strip_slash(cls, value: str) -> str:
@@ -184,4 +194,6 @@ class Settings(BaseSettings):
             "streamlit_api_base": self.streamlit_api_base,
             "assistant_city": self.assistant_city,
             "assistant_timezone": self.assistant_timezone,
+            "dify_lead_app_id": self.dify_lead_app_id,
+            "dify_live_enabled": self.dify_live_enabled,
         }

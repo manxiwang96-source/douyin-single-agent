@@ -46,6 +46,10 @@ Delivery gate is RUN_LIVE_ASSISTANT=1: immediately run morning brief, real MCP w
 
 ## Next redesign
 
-Locked but not implemented: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
-Keep this file as the current runtime map until that upgrade lands. Execute the upgrade one phase at a time from stage/README.md.
-That doc's client entry is 登录 → 新建智能体（一人多实例，填名称/简介/头像）→ 点卡片用这个智能体 → 对话+只读侧边栏; 能力只展示、不勾选; `ainvoke` will carry `thread_id` / `user_id` / `agent_instance_id`. Graph nodes stay unchanged. Retrieve happens inside chatbot against the instance KB. v1 Dify contract is one tool `discover_douyin_leads` over `douyin-lead-discovery` with `no_send=false`, transport `POST /v1/workflows/run` + Service API key; `difyctl` is retired; Dify stays in ToolNode, not MCP. Comment/DM HITL tables exist but v1 does not review outbound Douyin.
+Current target is 抖音运营智能体, but this file remains the 个人超级助理 runtime map until later phases land.
+Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`.
+Execute the upgrade one phase at a time from stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
+
+阶段 0 only changes docs and config: Settings, read-only catalog `douyin_ops`, prompt, demo KB, default-disable scheduler. Do not add SQL, DifyClient, or plaza here, and do not rewrite Layout as if the Douyin worker has already replaced the assistant graph.
+
+That doc's client entry is 登录 → 新建智能体（一人多实例，填名称/简介/头像）→ 点卡片用这个智能体 → 对话+只读侧边栏; 能力只展示、不勾选; `ainvoke` will carry `thread_id` / `user_id` / `agent_instance_id`. Graph nodes stay unchanged. Retrieve happens inside chatbot against the instance KB. v1 Dify contract is one tool `discover_douyin_leads` over `douyin-lead-discovery` with `no_send=false`, transport `POST /v1/workflows/run` + Service API key; `difyctl` is retired; Dify stays in ToolNode, not MCP. Comment/DM HITL tables exist but v1 does not review outbound Douyin. `DIFY_LIVE_ENABLED` stays false until phase 7.

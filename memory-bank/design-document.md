@@ -1,6 +1,6 @@
 # Design Document
 
-> 下一改造已锁定：`docs/modify/抖音运营智能体修改设计方案（1）.md`。实现抖音运营智能体前先读那份文档。正式 App 入口是用户 → 智能体实例 → 对话，能力只展示；v1 只调 Dify `douyin-lead-discovery`（一个工具 `discover_douyin_leads`，`POST /v1/workflows/run` + `DIFY_API_KEY`，`no_send=false` 真发，评论/私信不审；`difyctl` 不再采用）。本文仍描述当前已落地的个人超级助理，避免和现网代码脱节。
+> 当前目标是抖音运营智能体，不是继续改个人超级助理。产品锁定：`docs/modify/抖音运营智能体修改设计方案（1）.md`。执行切分：`stage/README.md` 与 `stage/抖音运营智能体分阶段实施套餐.md`。v1 模板只有 `douyin_ops`；工具 `discover_douyin_leads` 调 Dify `douyin-lead-discovery`（`POST /v1/workflows/run` + `DIFY_API_KEY`，`no_send=false` 真发，评论/私信不审；`difyctl` 不再采用）。`DIFY_LIVE_ENABLED` 默认 false，阶段 0–6 只 mock。阶段 0 只改文档与配置，不建表、不调 Dify。本文仍描述当前已落地的个人超级助理，避免和现网代码脱节。
 ## Scope
 Personal super assistant on the existing Xiaohongshu MVP. One graph, one product identity. Users chat in Streamlit; the same assistant can answer daily questions, remember facts, fetch weekday/weather via FastMCP, send SMTP email, and only write Xiaohongshu notes or generate media when the user explicitly asks.
 

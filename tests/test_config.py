@@ -57,14 +57,19 @@ def test_base_urls_strip_trailing_slash():
         openai_api_base_url="https://aitokens.website/v1/",
         embedding_base_url="https://api.siliconflow.cn/v1/",
         dashscope_endpoint="https://dashscope.aliyuncs.com/api/v1/",
+        dify_base_url="http://192.168.1.158/v1/",
+        douyin_http_base_url="http://example.test/",
     )
     assert settings.openai_api_base_url == "https://aitokens.website/v1"
     assert settings.embedding_base_url == "https://api.siliconflow.cn/v1"
     assert settings.dashscope_endpoint == "https://dashscope.aliyuncs.com/api/v1"
+    assert settings.dify_base_url == "http://192.168.1.158/v1"
+    assert settings.douyin_http_base_url == "http://example.test"
 
 
 def test_assistant_defaults():
     settings = Settings(
+        _env_file=None,
         postgres_uri="",
         smtp_user="",
         smtp_password="",
@@ -78,7 +83,12 @@ def test_assistant_defaults():
     assert settings.smtp_host == "smtp.163.com"
     assert settings.smtp_port == 465
     assert settings.smtp_ssl is True
-    assert settings.scheduler_enabled is True
+    assert settings.scheduler_enabled is False
+    assert settings.dify_timeout_s == 300
+    assert settings.dify_live_enabled is False
+    assert settings.dify_lead_app_id == "douyin-lead-discovery"
+    assert settings.douyin_http_base_url == ""
+    assert settings.douyin_http_api_token == ""
     assert settings.mcp_enabled is True
 
 
@@ -123,13 +133,28 @@ def test_validate_production_passes_with_required_fields():
     assert settings.smtp_to == "user@163.com"
 
 
+
+def test_public_config_excludes_dify_secrets():
+    settings = Settings(
+        dify_base_url="http://192.168.1.158/v1",
+        dify_api_key="secret-key",
+        douyin_http_api_token="secret-token",
+    )
+    public = settings.public_config()
+    assert public["dify_lead_app_id"] == "douyin-lead-discovery"
+    assert public["dify_live_enabled"] is False
+    assert "dify_api_key" not in public
+    assert "douyin_http_api_token" not in public
+    assert "dify_base_url" not in public
+
+
 def test_env_example_has_assistant_fields_without_secrets():
     text = Path(project_root() / ".env.example").read_text(encoding="utf-8")
     required = [
         "POSTGRES_URI=",
         "ASSISTANT_CITY=",
         "ASSISTANT_TIMEZONE=",
-        "SCHEDULER_ENABLED=",
+        "SCHEDULER_ENABLED=false",
         "SMTP_HOST=smtp.163.com",
         "SMTP_PORT=465",
         "SMTP_SSL=true",
@@ -137,6 +162,8 @@ def test_env_example_has_assistant_fields_without_secrets():
         "SMTP_PASSWORD=",
         "SMTP_FROM=",
         "SMTP_TO=",
+        "DIFY_TIMEOUT_S=300",
+        "DIFY_LIVE_ENABLED=false",
     ]
     missing = [item for item in required if item not in text]
     assert missing == [], missing

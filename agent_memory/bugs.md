@@ -1,6 +1,7 @@
 # Bugs and Risks
 
 ## Open
+- FastAPI/Streamlit titles already say 抖音运营助手 after 阶段 0, but the graph still has no `discover_douyin_leads` and Streamlit is still the old unauthenticated chat entry until later phases.
 - C HTTP (`DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN`) is empty in local `.env`. User confirmed the Dify workflow has defaults and console runs succeed; worker still must omit empty HTTP fields instead of failing startup.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
 - Existing PROFILE_NAMESPACE / JOBS_NAMESPACE ("assistant", ...) is global and will leak across users until phase 3 lands `(user_id, agent_instance_id, "profile"|"kb")`.

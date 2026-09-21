@@ -11,7 +11,7 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_memory_bank_docs_lock_assistant_upgrade():
+def test_memory_bank_docs_lock_douyin_next_upgrade_and_current_runtime():
     text = "\n".join([_read(DESIGN), _read(STACK), _read(PLAN)])
     required = [
         "个人超级助理",
@@ -34,6 +34,12 @@ def test_memory_bank_docs_lock_assistant_upgrade():
         "Open-Meteo",
         "APScheduler",
         "ainvoke",
+        "抖音运营智能体",
+        "douyin_ops",
+        "discover_douyin_leads",
+        "douyin-lead-discovery",
+        "DIFY_LIVE_ENABLED",
+        "阶段 0",
     ]
     missing = [item for item in required if item not in text]
     assert missing == [], f"missing snippets: {missing}"
@@ -52,6 +58,7 @@ def test_memory_bank_docs_do_not_commit_secrets():
     found = [item for item in forbidden if item in text]
     assert found == [], f"secrets leaked: {found}"
 
+
 def test_architecture_records_assistant_runtime():
     text = _read(ROOT / "memory-bank" / "architecture.md")
     required = [
@@ -69,4 +76,3 @@ def test_architecture_records_assistant_runtime():
     ]
     missing = [item for item in required if item not in text]
     assert missing == [], f"missing architecture snippets: {missing}"
-

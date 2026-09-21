@@ -8,6 +8,9 @@ Canonical product doc: docs/modify/抖音运营智能体修改设计方案（1�
 Phased execution for a new conversation: stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
 Do not treat deleted stage1/ as source. Do not edit C's Dify.
 
+## Phase 0 landed
+Read-only catalog `douyin_ops`; Douyin identity prompt; Settings Dify fields; `scheduler_enabled` default false; `knowledge/douyin_ops_demo`; FastAPI/Streamlit title copy. Runtime graph/API/memory namespaces are still the personal assistant.
+
 ## Plaza/sidebar
 一人多实例; unique title per user among non-archived (case-insensitive, no whitespace); card avatar/name/intro/mode/timestamps; sidebar capability_description + development notes + read-only single mode + knowledge panel; no model column; catalog supplies workflow/tool names and user_facing_summary. Chat click does not bump updated_at.
 

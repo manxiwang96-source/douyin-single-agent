@@ -1,15 +1,12 @@
 # Bugs and Risks
 
 ## Open
-- Plaza/sidebar discussion (not locked in the modify doc): talk confirmed 一人多实例, unique name, avatar/intro/mode timestamps, empty knowledge table, mode read-only. Doc v1 still forbids 一人多实例 and an editable agent_templates table. Do not treat talk as schema truth until the user allows a doc rewrite.
-- Custom-agent Dify (discussing): recommendation is keep ToolNode + DifyClient + catalog/binding, not wrap C's Dify as MCP. Wrapping Dify as MCP would add a hop, lose user_id/agent_instance_id, and mix secrets into the weather MCP process. If supervisor later needs MCP, wrap this worker HTTP, not Dify.
-- If 一人多实例 lands, (user_id, "profile") Store namespace and outputs/{user_id}/... media paths will leak across a user's agents. That is not a SQL table change but must move with the instance unique-index change.
 - difyctl auth login remains blocked on host OpenAPI 404. Design now locks v1 on the published workflow Service API key, not CLI OAuth. Last inspect: douyin-lead-discovery unpublished, no API keys yet. App API key != difyctl dfoa_ token; do not mix them.
 - User CMD vs PowerShell: $env:PATH=... in CMD yields 文件名、目录名或卷标语法不正确. Prefer the full exe path or set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%". Shim no longer depends on %LOCALAPPDATA%.
 - douyin-lead-discovery is still draft-only (0 published versions, no API keys). difyctl run / Service API cannot live-run until C publishes.
 - C HTTP (base_url) was not reachable from this machine when inspected; treat backend reachability as unconfirmed.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
-- Existing PROFILE_NAMESPACE / JOBS_NAMESPACE ("assistant", ...) is global and will leak across users when multi-user lands.
+- Existing PROFILE_NAMESPACE / JOBS_NAMESPACE ("assistant", ...) is global and will leak across users when multi-user lands. Modify doc now also requires (user_id, agent_instance_id, "profile") / ("kb") when the upgrade is implemented.
 - Existing POST /v1/threads has no user_id / agent_instance_id; the formal App three-step entry cannot use it as-is.
 - Phone-off 08:00 jobs fail if job tables are ever moved to the client.
 - Feishu bot and this worker might both send if run together; still needs C confirmation.
@@ -18,6 +15,7 @@
 - Pre-existing dirty file docs/summary/个人超级助手总结与逻辑复盘（2）.md makes test_each_heading_starts_with_plain_language fail (## 0. heading without nearby 白话). Left untouched.
 
 ## Closed
+- Plaza/sidebar, 一人多实例, binding table, instance KB retrieve, and field-level schema are now locked in docs/modify/抖音运营智能体修改设计方案（1）.md. Talk is no longer ahead of the canonical doc.
 - Input variable names for douyin-lead-discovery were read from the draft start node.
 - Dify version for this host is 1.17.0 Community.
 - v1 no longer assumes two tools or default --no-send; no_send=false is the locked true-send path, not a HITL bug.

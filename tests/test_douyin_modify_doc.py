@@ -76,6 +76,16 @@ class TestDouyinModifyDoc(unittest.TestCase):
             "DOUYIN_HTTP_BASE_URL",
             "DOUYIN_HTTP_API_TOKEN",
             "/v1/workflows/run",
+            "一人多实例",
+            "agent_instance_workflows",
+            "agent_knowledge_documents",
+            "capability_description",
+            "user_facing_summary",
+            "allowed_workflow_codes",
+            "点进对话不算最近编辑",
+            '(user_id, agent_instance_id, "kb")',
+            "单智能体模式",
+            "https://langgraph.com.cn/tutorials/rag/langgraph_agentic_rag/index.html",
         ]
         missing = [item for item in required if item not in text]
         self.assertEqual(missing, [], f"missing snippets: {missing}")

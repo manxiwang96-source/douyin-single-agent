@@ -19,6 +19,8 @@ def test_unauthenticated_business_routes_are_401(runtime):
         "/v1/media/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002/images/demo.png"
     ).status_code == 401
     assert client.post("/v1/assistant/jobs/run", json={"kind": "morning_brief"}).status_code == 401
+    assert client.post("/v1/jobs/00000000-0000-4000-8000-000000000001/disable").status_code == 401
+    assert client.post("/v1/job-runs/00000000-0000-4000-8000-000000000002/cancel").status_code == 401
 
 
 def test_register_login_me_logout(runtime):

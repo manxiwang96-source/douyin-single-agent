@@ -16,6 +16,7 @@ from app.repository import (
     DuplicateLoginError,
     DuplicateTitleError,
     DouyinAccountRecord,
+    JobDisabledError,
     ENGAGE_COMMENT_STATUSES,
     ENGAGE_DM_STATUSES,
     ENGAGE_VIDEO_STATUSES,
@@ -354,6 +355,8 @@ class PostgresBusinessRepository:
         )
         if job is None:
             raise NotFoundError(f"job definition not found: {job_id}")
+        if not job["enabled"]:
+            raise JobDisabledError(f"job is disabled: {job_id}")
         stamp = as_utc(scheduled_for)
         sql = """
             INSERT INTO job_runs (
@@ -376,6 +379,98 @@ class PostgresBusinessRepository:
                 None,
                 None,
             ),
+        )
+        return _job_run_from_row(row)
+
+    def get_job_definition(self, job_id: UUID) -> JobDefinitionRecord | None:
+        row = self._fetch_one(
+            "SELECT * FROM job_definitions WHERE job_id = %s",
+            (job_id,),
+            missing_ok=True,
+        )
+        return _job_from_row(row) if row is not None else None
+
+    def list_job_definitions(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+    ) -> list[JobDefinitionRecord]:
+        sql = "SELECT * FROM job_definitions WHERE user_id = %s"
+        params: list = [user_id]
+        if agent_instance_id is not None:
+            sql += " AND agent_instance_id = %s"
+            params.append(agent_instance_id)
+        sql += " ORDER BY created_at ASC"
+        rows = self._fetch_all(sql, tuple(params))
+        return [_job_from_row(row) for row in rows]
+
+    def set_job_enabled(self, job_id: UUID, enabled: bool) -> JobDefinitionRecord:
+        row = self._fetch_one(
+            """
+            UPDATE job_definitions
+            SET enabled = %s, updated_at = %s
+            WHERE job_id = %s
+            RETURNING *
+            """,
+            (bool(enabled), utcnow(), job_id),
+            missing_ok=True,
+        )
+        if row is None:
+            raise NotFoundError(f"job definition not found: {job_id}")
+        return _job_from_row(row)
+
+    def get_job_run(self, job_run_id: UUID) -> JobRunRecord | None:
+        row = self._fetch_one(
+            "SELECT * FROM job_runs WHERE job_run_id = %s",
+            (job_run_id,),
+            missing_ok=True,
+        )
+        return _job_run_from_row(row) if row is not None else None
+
+    def list_job_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+        *,
+        job_id: UUID | None = None,
+    ) -> list[JobRunRecord]:
+        sql = "SELECT * FROM job_runs WHERE user_id = %s"
+        params: list = [user_id]
+        if agent_instance_id is not None:
+            sql += " AND agent_instance_id = %s"
+            params.append(agent_instance_id)
+        if job_id is not None:
+            sql += " AND job_id = %s"
+            params.append(job_id)
+        sql += " ORDER BY scheduled_for ASC"
+        rows = self._fetch_all(sql, tuple(params))
+        return [_job_run_from_row(row) for row in rows]
+
+    def update_job_run(
+        self,
+        job_run_id: UUID,
+        *,
+        status: str | None = None,
+        error: str | None | object = UNSET,
+        started_at: datetime | None | object = UNSET,
+        finished_at: datetime | None | object = UNSET,
+    ) -> JobRunRecord:
+        current = self.get_job_run(job_run_id)
+        if current is None:
+            raise NotFoundError(f"job run not found: {job_run_id}")
+        next_status = current.status if status is None else status
+        require_value(next_status, JOB_RUN_STATUSES, "job run status")
+        next_error = current.error if error is UNSET else error
+        next_started = current.started_at if started_at is UNSET else started_at
+        next_finished = current.finished_at if finished_at is UNSET else finished_at
+        row = self._fetch_one(
+            """
+            UPDATE job_runs
+            SET status = %s, error = %s, started_at = %s, finished_at = %s
+            WHERE job_run_id = %s
+            RETURNING *
+            """,
+            (next_status, next_error, next_started, next_finished, job_run_id),
         )
         return _job_run_from_row(row)
 
@@ -836,6 +931,22 @@ class PostgresBusinessRepository:
         )
         return _engage_comment_from_row(row)
 
+    def update_engage_comment(self, comment_id: UUID, *, status: str) -> EngageCommentRecord:
+        require_value(status, ENGAGE_COMMENT_STATUSES, "engage comment status")
+        row = self._fetch_one(
+            """
+            UPDATE engage_comments
+            SET status = %s, updated_at = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (status, utcnow(), comment_id),
+            missing_ok=True,
+        )
+        if row is None:
+            raise NotFoundError(f"engage comment not found: {comment_id}")
+        return _engage_comment_from_row(row)
+
     def list_engage_comments(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageCommentRecord]:
         rows = self._fetch_all(
             """
@@ -886,6 +997,22 @@ class PostgresBusinessRepository:
                 now,
             ),
         )
+        return _engage_dm_from_row(row)
+
+    def update_engage_dm(self, dm_id: UUID, *, status: str) -> EngageDmRecord:
+        require_value(status, ENGAGE_DM_STATUSES, "engage dm status")
+        row = self._fetch_one(
+            """
+            UPDATE engage_dms
+            SET status = %s, updated_at = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (status, utcnow(), dm_id),
+            missing_ok=True,
+        )
+        if row is None:
+            raise NotFoundError(f"engage dm not found: {dm_id}")
         return _engage_dm_from_row(row)
 
     def list_engage_dms(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageDmRecord]:

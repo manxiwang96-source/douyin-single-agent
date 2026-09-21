@@ -24,6 +24,7 @@ from app.auth import (
 from app.avatars import AvatarError, avatar_root, resolve_avatar_file, save_avatar
 from app.config import Settings
 from app.graph import build_invoke_config
+from app.job_control import JobAccessDenied, cancel_job_run, disable_job, parse_job_uuid
 from app.jobs import arun_hydrate, arun_morning_brief, acatch_up_jobs
 from app.media_paths import MediaPathError, safe_media_file
 from app.plaza import (
@@ -36,6 +37,7 @@ from app.repository import (
     DuplicateLoginError,
     DuplicateTitleError,
     InvalidTitleError,
+    JobRunNotCancellableError,
     NotFoundError,
     RepositoryError,
     UNSET,
@@ -369,6 +371,28 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             "params": body.params or {},
         }
         return await _arun(thread_id, Command(resume=decision))
+
+    @app.post("/v1/jobs/{job_id}/disable")
+    def disable_owned_job(job_id: str, user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:
+        try:
+            job_uuid = parse_job_uuid(job_id, label="job")
+            return disable_job(repo, user_id=user.user_id, job_id=job_uuid)
+        except JobAccessDenied as exc:
+            raise _http_error(403, "job forbidden") from exc
+        except NotFoundError as exc:
+            raise _http_error(404, "job not found") from exc
+
+    @app.post("/v1/job-runs/{run_id}/cancel")
+    def cancel_owned_job_run(run_id: str, user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:
+        try:
+            run_uuid = parse_job_uuid(run_id, label="job run")
+            return cancel_job_run(repo, user_id=user.user_id, job_run_id=run_uuid)
+        except JobAccessDenied as exc:
+            raise _http_error(403, "job run forbidden") from exc
+        except JobRunNotCancellableError as exc:
+            raise _http_error(409, str(exc)) from exc
+        except NotFoundError as exc:
+            raise _http_error(404, "job run not found") from exc
 
     @app.post("/v1/assistant/jobs/run")
     async def run_job(body: JobRunIn, user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:

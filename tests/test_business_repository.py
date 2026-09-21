@@ -10,6 +10,7 @@ from app.repository import (
     DuplicateBindingError,
     DuplicateJobRunError,
     DuplicateTitleError,
+    JobDisabledError,
     InMemoryBusinessRepository,
     InvalidTitleError,
     KnowledgeSeed,
@@ -95,6 +96,11 @@ def test_job_run_idempotency_key_is_unique(repo):
         repo.create_job_run(job.job_id, scheduled_for)
     later = repo.create_job_run(job.job_id, scheduled_for + timedelta(days=1), status="cancelled")
     assert later.status == "cancelled"
+    disabled = repo.set_job_enabled(job.job_id, False)
+    assert disabled.enabled is False
+    with pytest.raises(JobDisabledError):
+        repo.create_job_run(job.job_id, scheduled_for + timedelta(days=2))
+    assert repo.get_job_definition(job.job_id) is not None
 
 
 def test_v1_template_is_locked_to_douyin_ops(repo):

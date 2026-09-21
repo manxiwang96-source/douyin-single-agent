@@ -80,6 +80,14 @@ class DuplicateJobRunError(RepositoryError):
     """(job_id, scheduled_for) must stay unique."""
 
 
+class JobDisabledError(RepositoryError):
+    """Disabled job definitions must not create new runs."""
+
+
+class JobRunNotCancellableError(RepositoryError):
+    """Terminal job runs cannot be cancelled."""
+
+
 class DuplicateLoginError(RepositoryError):
     """login_name is already taken."""
 
@@ -399,6 +407,40 @@ class BusinessRepository(Protocol):
         status: str = "scheduled",
         error: str | None = None,
     ) -> JobRunRecord: ...
+
+    def get_job_definition(self, job_id: UUID) -> JobDefinitionRecord | None: ...
+
+    def list_job_definitions(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+    ) -> list[JobDefinitionRecord]: ...
+
+    def set_job_enabled(self, job_id: UUID, enabled: bool) -> JobDefinitionRecord: ...
+
+    def get_job_run(self, job_run_id: UUID) -> JobRunRecord | None: ...
+
+    def list_job_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+        *,
+        job_id: UUID | None = None,
+    ) -> list[JobRunRecord]: ...
+
+    def update_job_run(
+        self,
+        job_run_id: UUID,
+        *,
+        status: str | None = None,
+        error: str | None | object = UNSET,
+        started_at: datetime | None | object = UNSET,
+        finished_at: datetime | None | object = UNSET,
+    ) -> JobRunRecord: ...
+
+    def update_engage_comment(self, comment_id: UUID, *, status: str) -> EngageCommentRecord: ...
+
+    def update_engage_dm(self, dm_id: UUID, *, status: str) -> EngageDmRecord: ...
 
     def add_knowledge_document(
         self,
@@ -782,6 +824,8 @@ class InMemoryBusinessRepository:
         job = self._jobs.get(job_id)
         if job is None:
             raise NotFoundError(f"job definition not found: {job_id}")
+        if not job.enabled:
+            raise JobDisabledError(f"job is disabled: {job_id}")
         require_value(status, JOB_RUN_STATUSES, "job run status")
         stamp = as_utc(scheduled_for)
         for existing in self._job_runs.values():
@@ -799,6 +843,73 @@ class InMemoryBusinessRepository:
             error=error,
             started_at=None,
             finished_at=None,
+        )
+        self._job_runs[record.job_run_id] = record
+        return record
+
+    def get_job_definition(self, job_id: UUID) -> JobDefinitionRecord | None:
+        return self._jobs.get(job_id)
+
+    def list_job_definitions(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+    ) -> list[JobDefinitionRecord]:
+        records = [
+            item
+            for item in self._jobs.values()
+            if item.user_id == user_id
+            and (agent_instance_id is None or item.agent_instance_id == agent_instance_id)
+        ]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def set_job_enabled(self, job_id: UUID, enabled: bool) -> JobDefinitionRecord:
+        record = self._jobs.get(job_id)
+        if record is None:
+            raise NotFoundError(f"job definition not found: {job_id}")
+        record = replace(record, enabled=bool(enabled), updated_at=utcnow())
+        self._jobs[record.job_id] = record
+        return record
+
+    def get_job_run(self, job_run_id: UUID) -> JobRunRecord | None:
+        return self._job_runs.get(job_run_id)
+
+    def list_job_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID | None = None,
+        *,
+        job_id: UUID | None = None,
+    ) -> list[JobRunRecord]:
+        records = [
+            item
+            for item in self._job_runs.values()
+            if item.user_id == user_id
+            and (agent_instance_id is None or item.agent_instance_id == agent_instance_id)
+            and (job_id is None or item.job_id == job_id)
+        ]
+        return sorted(records, key=lambda item: item.scheduled_for)
+
+    def update_job_run(
+        self,
+        job_run_id: UUID,
+        *,
+        status: str | None = None,
+        error: str | None | object = UNSET,
+        started_at: datetime | None | object = UNSET,
+        finished_at: datetime | None | object = UNSET,
+    ) -> JobRunRecord:
+        record = self._job_runs.get(job_run_id)
+        if record is None:
+            raise NotFoundError(f"job run not found: {job_run_id}")
+        if status is not None:
+            require_value(status, JOB_RUN_STATUSES, "job run status")
+        record = replace(
+            record,
+            status=status if status is not None else record.status,
+            error=record.error if error is UNSET else error,
+            started_at=record.started_at if started_at is UNSET else started_at,
+            finished_at=record.finished_at if finished_at is UNSET else finished_at,
         )
         self._job_runs[record.job_run_id] = record
         return record
@@ -1169,6 +1280,15 @@ class InMemoryBusinessRepository:
         self._engage_comments[record.id] = record
         return record
 
+    def update_engage_comment(self, comment_id: UUID, *, status: str) -> EngageCommentRecord:
+        record = self._engage_comments.get(comment_id)
+        if record is None:
+            raise NotFoundError(f"engage comment not found: {comment_id}")
+        require_value(status, ENGAGE_COMMENT_STATUSES, "engage comment status")
+        record = replace(record, status=status, updated_at=utcnow())
+        self._engage_comments[record.id] = record
+        return record
+
     def list_engage_comments(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageCommentRecord]:
         records = [
             item
@@ -1207,6 +1327,15 @@ class InMemoryBusinessRepository:
             candidate_reply=candidate_reply,
             approved_reply=approved_reply,
         )
+        self._engage_dms[record.id] = record
+        return record
+
+    def update_engage_dm(self, dm_id: UUID, *, status: str) -> EngageDmRecord:
+        record = self._engage_dms.get(dm_id)
+        if record is None:
+            raise NotFoundError(f"engage dm not found: {dm_id}")
+        require_value(status, ENGAGE_DM_STATUSES, "engage dm status")
+        record = replace(record, status=status, updated_at=utcnow())
         self._engage_dms[record.id] = record
         return record
 

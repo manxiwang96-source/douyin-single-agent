@@ -12,6 +12,7 @@ from langgraph.types import Command, interrupt
 
 from app.knowledge import format_kb_hits, kb_namespace, profile_namespace
 from app.knowledge import search_kb as kb_search
+from app.job_control import run_cancel_job, run_list_jobs
 from app.leads import json_tool_result, run_discover_douyin_leads
 from app.media_paths import media_url_for
 from app.repository import NotFoundError
@@ -325,6 +326,27 @@ def build_tools(
             return json_tool_result(result)
 
         tools.append(discover_douyin_leads)
+
+    if business_repo is not None:
+
+        @tool
+        def list_jobs() -> str:
+            """List job definitions and runs for the current agent instance."""
+            return json_tool_result(run_list_jobs(business_repo, _runtime_configurable()))
+
+        @tool
+        def cancel_job(job_id: str = "", run_id: str = "") -> str:
+            """Disable a job definition or cancel one job run. Only affects this user and instance."""
+            return json_tool_result(
+                run_cancel_job(
+                    business_repo,
+                    _runtime_configurable(),
+                    job_id=job_id,
+                    run_id=run_id,
+                )
+            )
+
+        tools.extend([list_jobs, cancel_job])
 
     if extra_tools:
         tools.extend(list(extra_tools))

@@ -1,10 +1,10 @@
 # Progress
 
 ## Current task
-阶段 4（Dify 工具 mock）已完成：DifyClient、discover_douyin_leads、workflow_runs 与 engage_* 尽力回写。默认 pytest 注入 FakeDifyClient。
+阶段 5（任务取消）已完成：list_jobs / cancel_job、HTTP disable/cancel、enabled=false 不再生成新 run、取消是状态且已 sent 不撤回。
 
 ## Status
-ToolNode 已挂 discover_douyin_leads。未绑定 douyin-lead-discovery 拒绝。服务器写死 no_send=false、auto_login=true；空的 DOUYIN_HTTP_* 不写入 inputs。user 使用我们的 user_id。账号 paused/needs_login 拒调；无投影行仍允许。10 分钟窗口内相同 user_id+agent_instance_id+account+keyword+video_id 的进行中 run 不二次 POST。形状不明的 outputs 仍记成功 workflow_runs。DIFY_LIVE_ENABLED 保持 false。图节点仍只有 chatbot + tools。Streamlit 仍是旧未登录入口。
+ToolNode 增加 list_jobs、cancel_job，从 configurable 读 user_id + agent_instance_id，只能动当前用户和当前实例。HTTP `POST /v1/jobs/{job_id}/disable` 与 `POST /v1/job-runs/{run_id}/cancel` 写同一行。禁用定义后 `create_job_run` 抛 JobDisabledError。进行中取消把 job_runs 标 cancelled，并把同一 run 下未发出的评论/私信标 cancelled；已 sent / failed / needs_login 不撤回。取消不删行。不实现抖音 8 点调度。晨报调度保持关闭。`POST /v1/assistant/jobs/run` 仍可手动留着。图节点仍只有 chatbot + tools。DIFY_LIVE_ENABLED 保持 false。Streamlit 仍是旧未登录入口。
 
 ## Next
-阶段 5：任务停用与运行取消。一次只做当前阶段。不要重建 stage1/。不要在未到阶段 7 时打真实 Dify。不要把 DIFY_LIVE_ENABLED 设为 true。
+阶段 6：Streamlit 过渡客户端。一次只做当前阶段。不要重建 stage1/。不要在未到阶段 7 时打真实 Dify。不要把 DIFY_LIVE_ENABLED 设为 true。

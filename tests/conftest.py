@@ -8,6 +8,7 @@ from app.config import Settings, project_root
 from app.embeddings import EmbeddingsAdapter, hashing_embed_documents
 from app.runtime import build_test_runtime
 from tests.fakes import (
+    FakeDifyClient,
     FakeEmailClient,
     FakeImageClient,
     FakeVideoClient,
@@ -109,7 +110,12 @@ def email_client() -> FakeEmailClient:
 
 
 @pytest.fixture
-def runtime(settings, embeddings, llm, image_client, video_client, media_root, knowledge_dir, email_client):
+def dify_client() -> FakeDifyClient:
+    return FakeDifyClient()
+
+
+@pytest.fixture
+def runtime(settings, embeddings, llm, image_client, video_client, media_root, knowledge_dir, email_client, dify_client):
     return build_test_runtime(
         settings,
         embeddings,
@@ -121,4 +127,5 @@ def runtime(settings, embeddings, llm, image_client, video_client, media_root, k
         extra_tools=fake_datetime_weather_tools(),
         email_client=email_client,
         facts_provider=static_facts_provider(settings.assistant_city),
+        dify_client=dify_client,
     )

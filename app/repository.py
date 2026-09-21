@@ -30,6 +30,33 @@ KNOWLEDGE_STATUSES = frozenset({"uploaded", "indexing", "ready", "failed", "arch
 THREAD_STATUSES = frozenset({"active", "interrupted", "closed", "archived"})
 MEDIA_KINDS = frozenset({"image", "video"})
 MEDIA_STORAGE_STATUSES = frozenset({"stored", "offloaded", "expired", "missing"})
+ACCOUNT_STATUSES = frozenset({"active", "paused", "needs_login"})
+WORKFLOW_RUN_STATUSES = frozenset(
+    {"running", "succeeded", "failed", "timeout", "auth_expired", "cancelled"}
+)
+ENGAGE_VIDEO_STATUSES = frozenset(
+    {
+        "discovered",
+        "selected",
+        "scanning",
+        "replying",
+        "failed",
+        "needs_login",
+        "completed",
+    }
+)
+ENGAGE_COMMENT_STATUSES = frozenset(
+    {
+        "proposed",
+        "ready_to_send",
+        "sending",
+        "sent",
+        "failed",
+        "needs_login",
+        "cancelled",
+    }
+)
+ENGAGE_DM_STATUSES = ENGAGE_COMMENT_STATUSES
 UNSET = object()
 
 
@@ -182,6 +209,90 @@ class MediaAssetRecord:
     storage_status: str
     created_at: datetime
     thread_id: str | None = None
+
+@dataclass(frozen=True)
+class DouyinAccountRecord:
+    account_id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    account: str
+    display_name: str | None
+    status: str
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class WorkflowRunRecord:
+    id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    workflow_code: str
+    inputs: dict
+    status: str
+    created_at: datetime
+    dify_app_id: str | None = None
+    thread_id: str | None = None
+    job_run_id: UUID | None = None
+    outputs: dict | None = None
+    workflow_run_id: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class EngageVideoRecord:
+    id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    platform_video_id: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    job_run_id: UUID | None = None
+    thread_id: str | None = None
+    workflow_run_id: str | None = None
+    keyword: str | None = None
+    title: str | None = None
+    url: str | None = None
+
+
+@dataclass(frozen=True)
+class EngageCommentRecord:
+    id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    platform_comment_id: str
+    video_id: str
+    source_text: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    score: float | None = None
+    candidate_reply: str | None = None
+    approved_reply: str | None = None
+    require_approval: bool = False
+    attempt_count: int = 0
+    verify_result: str | None = None
+    screenshot_uri: str | None = None
+
+
+@dataclass(frozen=True)
+class EngageDmRecord:
+    id: UUID
+    user_id: UUID
+    agent_instance_id: UUID
+    platform_message_id: str
+    video_id: str
+    source_text: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    score: float | None = None
+    candidate_reply: str | None = None
+    approved_reply: str | None = None
+    require_approval: bool = False
+    attempt_count: int = 0
+    verify_result: str | None = None
+    screenshot_uri: str | None = None
 
 
 def utcnow() -> datetime:
@@ -342,6 +453,108 @@ class BusinessRepository(Protocol):
 
     def list_media_assets(self, agent_instance_id: UUID) -> list[MediaAssetRecord]: ...
 
+    def upsert_douyin_account(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        account: str,
+        *,
+        display_name: str | None = None,
+        status: str = "active",
+    ) -> DouyinAccountRecord: ...
+
+    def get_douyin_account(
+        self, user_id: UUID, agent_instance_id: UUID, account: str
+    ) -> DouyinAccountRecord | None: ...
+
+    def list_douyin_accounts(self, user_id: UUID, agent_instance_id: UUID) -> list[DouyinAccountRecord]: ...
+
+    def create_workflow_run(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        workflow_code: str,
+        inputs: dict | None = None,
+        status: str = "running",
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        dify_app_id: str | None = None,
+        outputs: dict | None = None,
+        workflow_run_id: str | None = None,
+        error: str | None = None,
+    ) -> WorkflowRunRecord: ...
+
+    def update_workflow_run(
+        self,
+        run_id: UUID,
+        *,
+        status: str | None = None,
+        outputs: dict | None = None,
+        error: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> WorkflowRunRecord: ...
+
+    def list_workflow_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        status: str | None = None,
+        since: datetime | None = None,
+    ) -> list[WorkflowRunRecord]: ...
+
+    def add_engage_video(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_video_id: str,
+        status: str,
+        keyword: str | None = None,
+        title: str | None = None,
+        url: str | None = None,
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageVideoRecord: ...
+
+    def list_engage_videos(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageVideoRecord]: ...
+
+    def add_engage_comment(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_comment_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageCommentRecord: ...
+
+    def list_engage_comments(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageCommentRecord]: ...
+
+    def add_engage_dm(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_message_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageDmRecord: ...
+
+    def list_engage_dms(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageDmRecord]: ...
+
 
 class InMemoryBusinessRepository:
     """Test repository that mirrors SQL uniqueness and naming rules."""
@@ -356,6 +569,11 @@ class InMemoryBusinessRepository:
         self._sessions: dict[UUID, SessionRecord] = {}
         self._threads: dict[str, ThreadRecord] = {}
         self._media_assets: dict[UUID, MediaAssetRecord] = {}
+        self._accounts: dict[UUID, DouyinAccountRecord] = {}
+        self._workflow_runs: dict[UUID, WorkflowRunRecord] = {}
+        self._engage_videos: dict[UUID, EngageVideoRecord] = {}
+        self._engage_comments: dict[UUID, EngageCommentRecord] = {}
+        self._engage_dms: dict[UUID, EngageDmRecord] = {}
 
     def create_user(self, login_name: str, password_hash: str, *, status: str = "active") -> UserRecord:
         name = (login_name or "").strip()
@@ -731,6 +949,272 @@ class InMemoryBusinessRepository:
     def list_media_assets(self, agent_instance_id: UUID) -> list[MediaAssetRecord]:
         records = [
             item for item in self._media_assets.values() if item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def upsert_douyin_account(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        account: str,
+        *,
+        display_name: str | None = None,
+        status: str = "active",
+    ) -> DouyinAccountRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        name = (account or "").strip()
+        if not name:
+            raise RepositoryError("account is required")
+        require_value(status, ACCOUNT_STATUSES, "douyin account status")
+        now = utcnow()
+        for existing in self._accounts.values():
+            if (
+                existing.user_id == user_id
+                and existing.agent_instance_id == instance.agent_instance_id
+                and existing.account == name
+            ):
+                record = replace(
+                    existing,
+                    display_name=display_name if display_name is not None else existing.display_name,
+                    status=status,
+                    updated_at=now,
+                )
+                self._accounts[record.account_id] = record
+                return record
+        record = DouyinAccountRecord(
+            account_id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            account=name,
+            display_name=display_name,
+            status=status,
+            updated_at=now,
+        )
+        self._accounts[record.account_id] = record
+        return record
+
+    def get_douyin_account(
+        self, user_id: UUID, agent_instance_id: UUID, account: str
+    ) -> DouyinAccountRecord | None:
+        name = (account or "").strip()
+        for item in self._accounts.values():
+            if (
+                item.user_id == user_id
+                and item.agent_instance_id == agent_instance_id
+                and item.account == name
+            ):
+                return item
+        return None
+
+    def list_douyin_accounts(self, user_id: UUID, agent_instance_id: UUID) -> list[DouyinAccountRecord]:
+        records = [
+            item
+            for item in self._accounts.values()
+            if item.user_id == user_id and item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.updated_at)
+
+    def create_workflow_run(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        workflow_code: str,
+        inputs: dict | None = None,
+        status: str = "running",
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        dify_app_id: str | None = None,
+        outputs: dict | None = None,
+        workflow_run_id: str | None = None,
+        error: str | None = None,
+    ) -> WorkflowRunRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(status, WORKFLOW_RUN_STATUSES, "workflow run status")
+        record = WorkflowRunRecord(
+            id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            workflow_code=workflow_code,
+            inputs=dict(inputs or {}),
+            status=status,
+            created_at=utcnow(),
+            dify_app_id=dify_app_id,
+            thread_id=thread_id,
+            job_run_id=job_run_id,
+            outputs=dict(outputs) if outputs is not None else None,
+            workflow_run_id=workflow_run_id,
+            error=error,
+        )
+        self._workflow_runs[record.id] = record
+        return record
+
+    def update_workflow_run(
+        self,
+        run_id: UUID,
+        *,
+        status: str | None = None,
+        outputs: dict | None = None,
+        error: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> WorkflowRunRecord:
+        record = self._workflow_runs.get(run_id)
+        if record is None:
+            raise NotFoundError(f"workflow run not found: {run_id}")
+        if status is not None:
+            require_value(status, WORKFLOW_RUN_STATUSES, "workflow run status")
+        record = replace(
+            record,
+            status=status if status is not None else record.status,
+            outputs=dict(outputs) if outputs is not None else record.outputs,
+            error=error if error is not None else record.error,
+            workflow_run_id=workflow_run_id if workflow_run_id is not None else record.workflow_run_id,
+        )
+        self._workflow_runs[record.id] = record
+        return record
+
+    def list_workflow_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        status: str | None = None,
+        since: datetime | None = None,
+    ) -> list[WorkflowRunRecord]:
+        records = [
+            item
+            for item in self._workflow_runs.values()
+            if item.user_id == user_id and item.agent_instance_id == agent_instance_id
+        ]
+        if status is not None:
+            records = [item for item in records if item.status == status]
+        if since is not None:
+            stamp = as_utc(since)
+            records = [item for item in records if as_utc(item.created_at) >= stamp]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def add_engage_video(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_video_id: str,
+        status: str,
+        keyword: str | None = None,
+        title: str | None = None,
+        url: str | None = None,
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageVideoRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(status, ENGAGE_VIDEO_STATUSES, "engage video status")
+        now = utcnow()
+        record = EngageVideoRecord(
+            id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            platform_video_id=platform_video_id,
+            status=status,
+            created_at=now,
+            updated_at=now,
+            job_run_id=job_run_id,
+            thread_id=thread_id,
+            workflow_run_id=workflow_run_id,
+            keyword=keyword,
+            title=title,
+            url=url,
+        )
+        self._engage_videos[record.id] = record
+        return record
+
+    def list_engage_videos(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageVideoRecord]:
+        records = [
+            item
+            for item in self._engage_videos.values()
+            if item.user_id == user_id and item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def add_engage_comment(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_comment_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageCommentRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(status, ENGAGE_COMMENT_STATUSES, "engage comment status")
+        now = utcnow()
+        record = EngageCommentRecord(
+            id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            platform_comment_id=platform_comment_id,
+            video_id=video_id,
+            source_text=source_text or "",
+            status=status,
+            created_at=now,
+            updated_at=now,
+            candidate_reply=candidate_reply,
+            approved_reply=approved_reply,
+        )
+        self._engage_comments[record.id] = record
+        return record
+
+    def list_engage_comments(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageCommentRecord]:
+        records = [
+            item
+            for item in self._engage_comments.values()
+            if item.user_id == user_id and item.agent_instance_id == agent_instance_id
+        ]
+        return sorted(records, key=lambda item: item.created_at)
+
+    def add_engage_dm(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_message_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageDmRecord:
+        instance = self._require_instance(agent_instance_id, user_id)
+        require_value(status, ENGAGE_DM_STATUSES, "engage dm status")
+        now = utcnow()
+        record = EngageDmRecord(
+            id=uuid4(),
+            user_id=user_id,
+            agent_instance_id=instance.agent_instance_id,
+            platform_message_id=platform_message_id,
+            video_id=video_id,
+            source_text=source_text or "",
+            status=status,
+            created_at=now,
+            updated_at=now,
+            candidate_reply=candidate_reply,
+            approved_reply=approved_reply,
+        )
+        self._engage_dms[record.id] = record
+        return record
+
+    def list_engage_dms(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageDmRecord]:
+        records = [
+            item
+            for item in self._engage_dms.values()
+            if item.user_id == user_id and item.agent_instance_id == agent_instance_id
         ]
         return sorted(records, key=lambda item: item.created_at)
 

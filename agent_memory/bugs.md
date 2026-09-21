@@ -1,8 +1,7 @@
 # Bugs and Risks
 
 ## Open
-- FastAPI title already says 抖音运营智能体, but `discover_douyin_leads` is still not a ToolNode tool and Streamlit is still the old unauthenticated chat entry until later phases.
-- DifyClient is not wired yet (阶段 4).
+- Streamlit is still the old unauthenticated chat entry until phase 6.
 - C HTTP (`DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN`) is empty in local `.env`. User confirmed the Dify workflow has defaults and console runs succeed; worker still must omit empty HTTP fields instead of failing startup.
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
 - Morning-brief JOBS_NAMESPACE ("assistant", "jobs") remains global; conversation profile/KB/media are isolated as of phase 3.
@@ -15,6 +14,7 @@
 - difyctl auth login remains blocked on host OpenAPI 404. v1 no longer uses CLI OAuth; keep App API key and dfoa_ tokens unmixed.
 
 ## Closed
+- 阶段 4 DifyClient + discover_douyin_leads landed in ToolNode; default pytest injects FakeDifyClient and does not POST real Dify. DIFY_LIVE_ENABLED stays false.
 - 阶段 1 business SQL + in-memory repository landed; default pytest still does not open real Postgres.
 - 阶段 2 FastAPI login/plaza/sidebar/open HTTP landed; old POST /v1/threads is no longer the product entry after login.
 - 阶段 3 per-user/instance conversation memory, KB retrieve, media path/URL, and media_assets isolation landed. Graph nodes remain chatbot + tools.

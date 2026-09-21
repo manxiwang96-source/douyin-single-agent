@@ -157,3 +157,56 @@ def test_media_asset_requires_owned_instance(repo):
     with pytest.raises(NotFoundError):
         repo.add_media_asset(user.user_id, uuid4(), kind="image", storage_uri="x")
 
+def test_workflow_run_and_engage_projection(repo):
+    user, instance = _user_and_instance(repo, "wf-owner")
+    account = repo.upsert_douyin_account(
+        user.user_id,
+        instance.agent_instance_id,
+        "shop1",
+        display_name="店铺一",
+        status="active",
+    )
+    assert repo.get_douyin_account(user.user_id, instance.agent_instance_id, "shop1").account_id == account.account_id
+    run = repo.create_workflow_run(
+        user.user_id,
+        instance.agent_instance_id,
+        workflow_code=DEFAULT_WORKFLOW_CODE,
+        inputs={"account": "shop1", "no_send": False},
+        status="running",
+    )
+    updated = repo.update_workflow_run(
+        run.id,
+        status="succeeded",
+        outputs={"list_comment": []},
+        workflow_run_id="wf-1",
+    )
+    assert updated.status == "succeeded"
+    listed = repo.list_workflow_runs(user.user_id, instance.agent_instance_id, status="succeeded")
+    assert listed[0].id == run.id
+    video = repo.add_engage_video(
+        user.user_id,
+        instance.agent_instance_id,
+        platform_video_id="v1",
+        status="discovered",
+        keyword="敏感肌",
+        workflow_run_id="wf-1",
+    )
+    comment = repo.add_engage_comment(
+        user.user_id,
+        instance.agent_instance_id,
+        platform_comment_id="c1",
+        video_id="v1",
+        status="sent",
+        source_text="想买",
+    )
+    dm = repo.add_engage_dm(
+        user.user_id,
+        instance.agent_instance_id,
+        platform_message_id="m1",
+        video_id="v1",
+        status="sent",
+        source_text="多少钱",
+    )
+    assert repo.list_engage_videos(user.user_id, instance.agent_instance_id)[0].id == video.id
+    assert repo.list_engage_comments(user.user_id, instance.agent_instance_id)[0].id == comment.id
+    assert repo.list_engage_dms(user.user_id, instance.agent_instance_id)[0].id == dm.id

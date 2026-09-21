@@ -120,6 +120,63 @@ class FakeEmailClient:
         return record
 
 
+
+class FakeDifyClient:
+    def __init__(self, result: dict[str, Any] | None = None):
+        self.calls: list[dict[str, Any]] = []
+        self.queue: list[Any] = []
+        self.result = result or {
+            "ok": True,
+            "name": "douyin-lead-discovery",
+            "workflow_run_id": "wf-fake-1",
+            "status": "succeeded",
+            "outputs": {
+                "list_comment": [
+                    {
+                        "platform_comment_id": "c1",
+                        "video_id": "v1",
+                        "source_text": "想买",
+                        "candidate_reply": "私信你",
+                        "status": "sent",
+                    }
+                ],
+                "list_message": [
+                    {
+                        "platform_message_id": "m1",
+                        "video_id": "v1",
+                        "source_text": "多少钱",
+                        "status": "sent",
+                    }
+                ],
+                "snapshot": [
+                    {
+                        "platform_video_id": "v1",
+                        "title": "demo",
+                        "url": "https://example.test/v1",
+                        "keyword": "敏感肌",
+                    }
+                ],
+            },
+            "error": None,
+        }
+
+    def enqueue(self, result: Any) -> None:
+        self.queue.append(result)
+
+    def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None) -> dict[str, Any]:
+        self.calls.append({"name": name, "inputs": dict(inputs), "user": user})
+        if self.queue:
+            item = self.queue.pop(0)
+            if callable(item):
+                payload = item(name, inputs, user)
+            else:
+                payload = dict(item)
+        else:
+            payload = dict(self.result)
+        payload.setdefault("name", name)
+        return payload
+
+
 def fake_datetime_weather_tools(facts: DayFacts | None = None) -> list:
     facts = facts or default_test_facts()
 

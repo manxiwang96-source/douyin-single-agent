@@ -8,12 +8,20 @@ from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from psycopg.types.json import Jsonb
 
 from app.repository import (
+    ACCOUNT_STATUSES,
     DEFAULT_WORKFLOW_CODE,
     DOUYIN_OPS_TEMPLATE,
     DuplicateBindingError,
     DuplicateJobRunError,
     DuplicateLoginError,
     DuplicateTitleError,
+    DouyinAccountRecord,
+    ENGAGE_COMMENT_STATUSES,
+    ENGAGE_DM_STATUSES,
+    ENGAGE_VIDEO_STATUSES,
+    EngageCommentRecord,
+    EngageDmRecord,
+    EngageVideoRecord,
     InvalidTitleError,
     JobDefinitionRecord,
     JobRunRecord,
@@ -28,7 +36,9 @@ from app.repository import (
     ThreadRecord,
     UNSET,
     UserRecord,
+    WORKFLOW_RUN_STATUSES,
     WorkflowBindingRecord,
+    WorkflowRunRecord,
     AgentInstanceRecord,
     normalize_agent_title,
     require_template_code,
@@ -558,6 +568,337 @@ class PostgresBusinessRepository:
         )
         return [_media_from_row(row) for row in rows]
 
+    def upsert_douyin_account(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        account: str,
+        *,
+        display_name: str | None = None,
+        status: str = "active",
+    ) -> DouyinAccountRecord:
+        name = (account or "").strip()
+        if not name:
+            raise RepositoryError("account is required")
+        require_value(status, ACCOUNT_STATUSES, "douyin account status")
+        existing = self.get_douyin_account(user_id, agent_instance_id, name)
+        now = utcnow()
+        if existing is not None:
+            row = self._fetch_one(
+                """
+                UPDATE douyin_accounts
+                SET display_name = %s, status = %s, updated_at = %s
+                WHERE account_id = %s
+                RETURNING *
+                """,
+                (
+                    display_name if display_name is not None else existing.display_name,
+                    status,
+                    now,
+                    existing.account_id,
+                ),
+            )
+            return _account_from_row(row)
+        row = self._fetch_one(
+            """
+            INSERT INTO douyin_accounts (
+                account_id, user_id, agent_instance_id, account, display_name, status, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (uuid4(), user_id, agent_instance_id, name, display_name, status, now),
+        )
+        return _account_from_row(row)
+
+    def get_douyin_account(
+        self, user_id: UUID, agent_instance_id: UUID, account: str
+    ) -> DouyinAccountRecord | None:
+        row = self._fetch_one(
+            """
+            SELECT * FROM douyin_accounts
+            WHERE user_id = %s AND agent_instance_id = %s AND account = %s
+            """,
+            (user_id, agent_instance_id, (account or "").strip()),
+            missing_ok=True,
+        )
+        return _account_from_row(row) if row is not None else None
+
+    def list_douyin_accounts(self, user_id: UUID, agent_instance_id: UUID) -> list[DouyinAccountRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM douyin_accounts
+            WHERE user_id = %s AND agent_instance_id = %s
+            ORDER BY updated_at ASC
+            """,
+            (user_id, agent_instance_id),
+        )
+        return [_account_from_row(row) for row in rows]
+
+    def create_workflow_run(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        workflow_code: str,
+        inputs: dict | None = None,
+        status: str = "running",
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        dify_app_id: str | None = None,
+        outputs: dict | None = None,
+        workflow_run_id: str | None = None,
+        error: str | None = None,
+    ) -> WorkflowRunRecord:
+        require_value(status, WORKFLOW_RUN_STATUSES, "workflow run status")
+        row = self._fetch_one(
+            """
+            INSERT INTO workflow_runs (
+                id, user_id, agent_instance_id, workflow_code, dify_app_id, thread_id, job_run_id,
+                inputs, outputs, workflow_run_id, status, error, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                uuid4(),
+                user_id,
+                agent_instance_id,
+                workflow_code,
+                dify_app_id,
+                thread_id,
+                job_run_id,
+                Jsonb(inputs or {}),
+                Jsonb(outputs) if outputs is not None else None,
+                workflow_run_id,
+                status,
+                error,
+                utcnow(),
+            ),
+        )
+        return _workflow_run_from_row(row)
+
+    def update_workflow_run(
+        self,
+        run_id: UUID,
+        *,
+        status: str | None = None,
+        outputs: dict | None = None,
+        error: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> WorkflowRunRecord:
+        current = self._fetch_one(
+            "SELECT * FROM workflow_runs WHERE id = %s",
+            (run_id,),
+            missing_ok=True,
+        )
+        if current is None:
+            raise NotFoundError(f"workflow run not found: {run_id}")
+        next_status = status if status is not None else current["status"]
+        require_value(next_status, WORKFLOW_RUN_STATUSES, "workflow run status")
+        next_outputs = outputs if outputs is not None else current.get("outputs")
+        next_error = error if error is not None else current.get("error")
+        next_workflow_run_id = (
+            workflow_run_id if workflow_run_id is not None else current.get("workflow_run_id")
+        )
+        row = self._fetch_one(
+            """
+            UPDATE workflow_runs
+            SET status = %s, outputs = %s, error = %s, workflow_run_id = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                next_status,
+                Jsonb(next_outputs) if next_outputs is not None else None,
+                next_error,
+                next_workflow_run_id,
+                run_id,
+            ),
+        )
+        return _workflow_run_from_row(row)
+
+    def list_workflow_runs(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        status: str | None = None,
+        since: datetime | None = None,
+    ) -> list[WorkflowRunRecord]:
+        sql = """
+            SELECT * FROM workflow_runs
+            WHERE user_id = %s AND agent_instance_id = %s
+        """
+        params: list = [user_id, agent_instance_id]
+        if status is not None:
+            sql += " AND status = %s"
+            params.append(status)
+        if since is not None:
+            sql += " AND created_at >= %s"
+            params.append(as_utc(since))
+        sql += " ORDER BY created_at ASC"
+        rows = self._fetch_all(sql, tuple(params))
+        return [_workflow_run_from_row(row) for row in rows]
+
+    def add_engage_video(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_video_id: str,
+        status: str,
+        keyword: str | None = None,
+        title: str | None = None,
+        url: str | None = None,
+        thread_id: str | None = None,
+        job_run_id: UUID | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageVideoRecord:
+        require_value(status, ENGAGE_VIDEO_STATUSES, "engage video status")
+        now = utcnow()
+        row = self._fetch_one(
+            """
+            INSERT INTO engage_videos (
+                id, user_id, agent_instance_id, job_run_id, thread_id, workflow_run_id,
+                platform_video_id, keyword, title, url, status, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                uuid4(),
+                user_id,
+                agent_instance_id,
+                job_run_id,
+                thread_id,
+                workflow_run_id,
+                platform_video_id,
+                keyword,
+                title,
+                url,
+                status,
+                now,
+                now,
+            ),
+        )
+        return _engage_video_from_row(row)
+
+    def list_engage_videos(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageVideoRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM engage_videos
+            WHERE user_id = %s AND agent_instance_id = %s
+            ORDER BY created_at ASC
+            """,
+            (user_id, agent_instance_id),
+        )
+        return [_engage_video_from_row(row) for row in rows]
+
+    def add_engage_comment(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_comment_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageCommentRecord:
+        require_value(status, ENGAGE_COMMENT_STATUSES, "engage comment status")
+        now = utcnow()
+        row = self._fetch_one(
+            """
+            INSERT INTO engage_comments (
+                id, user_id, agent_instance_id, platform_comment_id, video_id, source_text,
+                candidate_reply, approved_reply, status, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                uuid4(),
+                user_id,
+                agent_instance_id,
+                platform_comment_id,
+                video_id,
+                source_text or "",
+                candidate_reply,
+                approved_reply,
+                status,
+                now,
+                now,
+            ),
+        )
+        return _engage_comment_from_row(row)
+
+    def list_engage_comments(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageCommentRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM engage_comments
+            WHERE user_id = %s AND agent_instance_id = %s
+            ORDER BY created_at ASC
+            """,
+            (user_id, agent_instance_id),
+        )
+        return [_engage_comment_from_row(row) for row in rows]
+
+    def add_engage_dm(
+        self,
+        user_id: UUID,
+        agent_instance_id: UUID,
+        *,
+        platform_message_id: str,
+        video_id: str,
+        status: str,
+        source_text: str = "",
+        candidate_reply: str | None = None,
+        approved_reply: str | None = None,
+        thread_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> EngageDmRecord:
+        require_value(status, ENGAGE_DM_STATUSES, "engage dm status")
+        now = utcnow()
+        row = self._fetch_one(
+            """
+            INSERT INTO engage_dms (
+                id, user_id, agent_instance_id, platform_message_id, video_id, source_text,
+                candidate_reply, approved_reply, status, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                uuid4(),
+                user_id,
+                agent_instance_id,
+                platform_message_id,
+                video_id,
+                source_text or "",
+                candidate_reply,
+                approved_reply,
+                status,
+                now,
+                now,
+            ),
+        )
+        return _engage_dm_from_row(row)
+
+    def list_engage_dms(self, user_id: UUID, agent_instance_id: UUID) -> list[EngageDmRecord]:
+        rows = self._fetch_all(
+            """
+            SELECT * FROM engage_dms
+            WHERE user_id = %s AND agent_instance_id = %s
+            ORDER BY created_at ASC
+            """,
+            (user_id, agent_instance_id),
+        )
+        return [_engage_dm_from_row(row) for row in rows]
+
     def _execute(self, sql: str, params=()) -> None:
         try:
             with self.pool.connection() as conn:
@@ -735,4 +1076,94 @@ def _document_from_row(row) -> KnowledgeDocumentRecord:
         source=row["source"],
         status=row["status"],
         created_at=row["created_at"],
+    )
+def _account_from_row(row) -> DouyinAccountRecord:
+    return DouyinAccountRecord(
+        account_id=_as_uuid(row["account_id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        account=row["account"],
+        display_name=row.get("display_name"),
+        status=row["status"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _workflow_run_from_row(row) -> WorkflowRunRecord:
+    inputs = row.get("inputs") or {}
+    outputs = row.get("outputs")
+    return WorkflowRunRecord(
+        id=_as_uuid(row["id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        workflow_code=row["workflow_code"],
+        inputs=dict(inputs),
+        status=row["status"],
+        created_at=row["created_at"],
+        dify_app_id=row.get("dify_app_id"),
+        thread_id=row.get("thread_id"),
+        job_run_id=_as_uuid(row["job_run_id"]) if row.get("job_run_id") else None,
+        outputs=dict(outputs) if outputs is not None else None,
+        workflow_run_id=row.get("workflow_run_id"),
+        error=row.get("error"),
+    )
+
+
+def _engage_video_from_row(row) -> EngageVideoRecord:
+    return EngageVideoRecord(
+        id=_as_uuid(row["id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        platform_video_id=row["platform_video_id"],
+        status=row["status"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        job_run_id=_as_uuid(row["job_run_id"]) if row.get("job_run_id") else None,
+        thread_id=row.get("thread_id"),
+        workflow_run_id=row.get("workflow_run_id"),
+        keyword=row.get("keyword"),
+        title=row.get("title"),
+        url=row.get("url"),
+    )
+
+
+def _engage_comment_from_row(row) -> EngageCommentRecord:
+    return EngageCommentRecord(
+        id=_as_uuid(row["id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        platform_comment_id=row["platform_comment_id"],
+        video_id=row["video_id"],
+        source_text=row.get("source_text") or "",
+        status=row["status"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        score=row.get("score"),
+        candidate_reply=row.get("candidate_reply"),
+        approved_reply=row.get("approved_reply"),
+        require_approval=bool(row.get("require_approval") or False),
+        attempt_count=int(row.get("attempt_count") or 0),
+        verify_result=row.get("verify_result"),
+        screenshot_uri=row.get("screenshot_uri"),
+    )
+
+
+def _engage_dm_from_row(row) -> EngageDmRecord:
+    return EngageDmRecord(
+        id=_as_uuid(row["id"]),
+        user_id=_as_uuid(row["user_id"]),
+        agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        platform_message_id=row["platform_message_id"],
+        video_id=row["video_id"],
+        source_text=row.get("source_text") or "",
+        status=row["status"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        score=row.get("score"),
+        candidate_reply=row.get("candidate_reply"),
+        approved_reply=row.get("approved_reply"),
+        require_approval=bool(row.get("require_approval") or False),
+        attempt_count=int(row.get("attempt_count") or 0),
+        verify_result=row.get("verify_result"),
+        screenshot_uri=row.get("screenshot_uri"),
     )

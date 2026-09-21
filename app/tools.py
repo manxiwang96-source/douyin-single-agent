@@ -12,6 +12,7 @@ from langgraph.types import Command, interrupt
 
 from app.knowledge import format_kb_hits, kb_namespace, profile_namespace
 from app.knowledge import search_kb as kb_search
+from app.leads import json_tool_result, run_discover_douyin_leads
 from app.media_paths import media_url_for
 from app.repository import NotFoundError
 
@@ -129,6 +130,7 @@ def build_tools(
     email_client=None,
     extra_tools=None,
     business_repo=None,
+    dify_client=None,
 ):
     @tool
     def search_kb(query: str, k: int = 4) -> str:
@@ -294,6 +296,35 @@ def build_tools(
             )
 
         tools.append(send_email)
+
+
+    if business_repo is not None and dify_client is not None:
+
+        @tool
+        def discover_douyin_leads(
+            account: str,
+            keyword: str = "",
+            video_id: str = "",
+            limit: int = 0,
+            channels: str = "",
+            list_status: str = "",
+        ) -> str:
+            """Find Douyin comment/DM leads and send replies. This really sends."""
+            result = run_discover_douyin_leads(
+                settings=settings,
+                business_repo=business_repo,
+                dify_client=dify_client,
+                configurable=_runtime_configurable(),
+                account=account,
+                keyword=keyword,
+                video_id=video_id,
+                limit=limit or None,
+                channels=channels,
+                list_status=list_status,
+            )
+            return json_tool_result(result)
+
+        tools.append(discover_douyin_leads)
 
     if extra_tools:
         tools.extend(list(extra_tools))

@@ -1,0 +1,313 @@
+from __future__ import annotations
+
+import json
+from datetime import timedelta
+from typing import Any
+from uuid import UUID
+
+from app.repository import (
+    DEFAULT_WORKFLOW_CODE,
+    ENGAGE_COMMENT_STATUSES,
+    ENGAGE_DM_STATUSES,
+    ENGAGE_VIDEO_STATUSES,
+    utcnow,
+)
+
+LEAD_WORKFLOW_CODE = DEFAULT_WORKFLOW_CODE
+DEDUP_WINDOW = timedelta(minutes=10)
+BLOCKED_ACCOUNT_STATUSES = frozenset({"paused", "needs_login"})
+
+
+def json_tool_result(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_dify_inputs(
+    settings,
+    *,
+    account: str,
+    keyword: str = "",
+    video_id: str = "",
+    limit: int | str | None = None,
+    channels: str = "",
+    list_status: str = "",
+) -> dict[str, Any]:
+    inputs: dict[str, Any] = {
+        "account": account,
+        "no_send": False,
+        "auto_login": True,
+    }
+    if keyword:
+        inputs["keyword"] = keyword
+    if video_id:
+        inputs["video_id"] = video_id
+    if limit is not None and str(limit) != "":
+        inputs["limit"] = limit
+    if channels:
+        inputs["channels"] = channels
+    if list_status:
+        inputs["list_status"] = list_status
+    base_url = (getattr(settings, "douyin_http_base_url", "") or "").strip()
+    api_token = (getattr(settings, "douyin_http_api_token", "") or "").strip()
+    if base_url:
+        inputs["base_url"] = base_url
+    if api_token:
+        inputs["api_token"] = api_token
+    return inputs
+
+
+def validate_lead_args(*, account: str, keyword: str, video_id: str) -> str | None:
+    if not (account or "").strip():
+        return "account is required"
+    if not (keyword or "").strip() and not (video_id or "").strip():
+        return "keyword or video_id is required"
+    return None
+
+
+def _norm(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def find_in_progress_run(repo, user_id: UUID, agent_instance_id: UUID, inputs: dict[str, Any]):
+    since = utcnow() - DEDUP_WINDOW
+    account = _norm(inputs.get("account"))
+    keyword = _norm(inputs.get("keyword"))
+    video_id = _norm(inputs.get("video_id"))
+    for record in repo.list_workflow_runs(user_id, agent_instance_id, status="running", since=since):
+        existing = record.inputs or {}
+        if (
+            _norm(existing.get("account")) == account
+            and _norm(existing.get("keyword")) == keyword
+            and _norm(existing.get("video_id")) == video_id
+        ):
+            return record
+    return None
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            return _as_list(json.loads(value))
+        except Exception:
+            return []
+    if isinstance(value, dict):
+        for key in ("data", "items", "list", "comments", "messages", "videos", "result"):
+            if isinstance(value.get(key), list):
+                return value[key]
+        return [value]
+    return []
+
+
+def _item_status(item: dict[str, Any], allowed: frozenset[str], default: str) -> str:
+    raw = str(item.get("status") or item.get("send_status") or "").strip().lower()
+    if raw in allowed:
+        return raw
+    if "login" in raw:
+        return "needs_login"
+    if raw in {"fail", "failed", "error"}:
+        return "failed"
+    return default
+
+
+def _first_text(item: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    return ""
+
+
+def apply_engage_writeback(
+    repo,
+    *,
+    user_id: UUID,
+    agent_instance_id: UUID,
+    thread_id: str | None,
+    workflow_run_id: str | None,
+    outputs: Any,
+    keyword: str | None = None,
+) -> dict[str, int]:
+    payload = outputs if isinstance(outputs, dict) else {}
+    comments = _as_list(payload.get("list_comment"))
+    messages = _as_list(payload.get("list_message"))
+    videos = _as_list(payload.get("snapshot"))
+    if not videos and isinstance(payload.get("snapshot"), dict):
+        videos = _as_list(payload["snapshot"].get("videos"))
+    written = {"videos": 0, "comments": 0, "dms": 0}
+    for item in videos:
+        if not isinstance(item, dict):
+            continue
+        platform_video_id = _first_text(item, "platform_video_id", "video_id", "aweme_id", "id") or "unknown"
+        status = _item_status(item, ENGAGE_VIDEO_STATUSES, "discovered")
+        repo.add_engage_video(
+            user_id,
+            agent_instance_id,
+            platform_video_id=platform_video_id,
+            keyword=item.get("keyword") or keyword,
+            title=item.get("title"),
+            url=item.get("url") or item.get("share_url"),
+            status=status,
+            thread_id=thread_id,
+            workflow_run_id=workflow_run_id,
+        )
+        written["videos"] += 1
+    for item in comments:
+        if not isinstance(item, dict):
+            continue
+        repo.add_engage_comment(
+            user_id,
+            agent_instance_id,
+            platform_comment_id=_first_text(item, "platform_comment_id", "comment_id", "cid", "id") or "unknown",
+            video_id=_first_text(item, "video_id", "aweme_id", "platform_video_id") or "unknown",
+            source_text=_first_text(item, "source_text", "text", "content", "comment"),
+            candidate_reply=_first_text(item, "candidate_reply", "reply", "approved_reply"),
+            status=_item_status(item, ENGAGE_COMMENT_STATUSES, "sent"),
+            thread_id=thread_id,
+            workflow_run_id=workflow_run_id,
+        )
+        written["comments"] += 1
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        repo.add_engage_dm(
+            user_id,
+            agent_instance_id,
+            platform_message_id=_first_text(item, "platform_message_id", "message_id", "id") or "unknown",
+            video_id=_first_text(item, "video_id", "aweme_id", "platform_video_id") or "unknown",
+            source_text=_first_text(item, "source_text", "text", "content", "message"),
+            candidate_reply=_first_text(item, "candidate_reply", "reply", "approved_reply"),
+            status=_item_status(item, ENGAGE_DM_STATUSES, "sent"),
+            thread_id=thread_id,
+            workflow_run_id=workflow_run_id,
+        )
+        written["dms"] += 1
+    return written
+
+
+def summarize_lead_result(*, status: str, outputs: Any, written: dict[str, int], error: str | None) -> str:
+    if error:
+        return error
+    parts = [f"status={status}"]
+    if written["videos"] or written["comments"] or written["dms"]:
+        parts.append(
+            f"wrote videos={written['videos']} comments={written['comments']} dms={written['dms']}"
+        )
+    elif isinstance(outputs, dict) and outputs:
+        keys = ",".join(sorted(str(key) for key in outputs.keys()))
+        parts.append(f"outputs={keys}")
+    else:
+        parts.append("no structured engage rows")
+    return "; ".join(parts)
+
+
+def run_discover_douyin_leads(
+    *,
+    settings,
+    business_repo,
+    dify_client,
+    configurable: dict[str, Any],
+    account: str,
+    keyword: str = "",
+    video_id: str = "",
+    limit: int | str | None = None,
+    channels: str = "",
+    list_status: str = "",
+) -> dict[str, Any]:
+    user_id_raw = configurable.get("user_id")
+    agent_instance_id_raw = configurable.get("agent_instance_id")
+    thread_id = str(configurable.get("thread_id") or "") or None
+    allowed = list(configurable.get("allowed_workflow_codes") or [])
+    if LEAD_WORKFLOW_CODE not in allowed:
+        return {
+            "ok": False,
+            "error": "workflow not bound",
+            "status": "failed",
+        }
+    missing = validate_lead_args(account=account, keyword=keyword, video_id=video_id)
+    if missing:
+        return {"ok": False, "error": missing, "status": "failed"}
+    try:
+        user_id = UUID(str(user_id_raw))
+        agent_instance_id = UUID(str(agent_instance_id_raw))
+    except Exception:
+        return {"ok": False, "error": "missing instance context", "status": "failed"}
+
+    account_text = account.strip()
+    record = business_repo.get_douyin_account(user_id, agent_instance_id, account_text)
+    if record is not None and record.status in BLOCKED_ACCOUNT_STATUSES:
+        return {
+            "ok": False,
+            "error": f"account {record.status}",
+            "status": record.status,
+            "account": account_text,
+        }
+
+    inputs = build_dify_inputs(
+        settings,
+        account=account_text,
+        keyword=(keyword or "").strip(),
+        video_id=(video_id or "").strip(),
+        limit=limit,
+        channels=(channels or "").strip(),
+        list_status=(list_status or "").strip(),
+    )
+    existing = find_in_progress_run(business_repo, user_id, agent_instance_id, inputs)
+    if existing is not None:
+        return {
+            "ok": True,
+            "reused": True,
+            "status": existing.status,
+            "workflow_run_id": existing.workflow_run_id,
+            "id": str(existing.id),
+            "summary": "in-progress run reused; skipped second POST",
+        }
+
+    run = business_repo.create_workflow_run(
+        user_id,
+        agent_instance_id,
+        workflow_code=LEAD_WORKFLOW_CODE,
+        inputs=inputs,
+        status="running",
+        thread_id=thread_id,
+        dify_app_id=getattr(settings, "dify_lead_app_id", None),
+    )
+    result = dify_client.run(LEAD_WORKFLOW_CODE, inputs, user=str(user_id))
+    status = str(result.get("status") or ("succeeded" if result.get("ok") else "failed"))
+    outputs = result.get("outputs")
+    error = result.get("error")
+    workflow_run_id = result.get("workflow_run_id")
+    updated = business_repo.update_workflow_run(
+        run.id,
+        status=status,
+        outputs=outputs if isinstance(outputs, dict) else None,
+        error=None if result.get("ok") else (error or status),
+        workflow_run_id=workflow_run_id,
+    )
+    written = {"videos": 0, "comments": 0, "dms": 0}
+    if result.get("ok"):
+        try:
+            written = apply_engage_writeback(
+                business_repo,
+                user_id=user_id,
+                agent_instance_id=agent_instance_id,
+                thread_id=thread_id,
+                workflow_run_id=workflow_run_id or str(updated.id),
+                outputs=outputs,
+                keyword=inputs.get("keyword"),
+            )
+        except Exception:
+            written = {"videos": 0, "comments": 0, "dms": 0}
+    summary = summarize_lead_result(status=status, outputs=outputs, written=written, error=None if result.get("ok") else error)
+    return {
+        "ok": bool(result.get("ok")),
+        "status": status,
+        "workflow_run_id": workflow_run_id,
+        "id": str(updated.id),
+        "summary": summary,
+        "written": written,
+        "error": None if result.get("ok") else (error or status),
+    }

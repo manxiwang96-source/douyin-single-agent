@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.config import Settings, project_root
+from app.dify_client import DifyClient
 from app.embeddings import make_openai_embeddings
 from app.graph import build_graph, interrupt_payload
 from app.image_client import ImageClient
@@ -47,6 +48,7 @@ class AppRuntime:
     facts_provider: Any
     pg_pool: Any = None
     business_repo: Any = None
+    dify_client: Any = None
 
 
 def make_llm(settings: Settings):
@@ -77,6 +79,7 @@ def build_runtime(
     facts_provider=None,
     pg_pool=None,
     business_repo=None,
+    dify_client=None,
 ) -> AppRuntime:
     settings = settings or Settings()
     root = project_root()
@@ -121,6 +124,8 @@ def build_runtime(
         from app.email_client import SmtpEmailClient
 
         email_client = SmtpEmailClient(settings)
+    dify_client = dify_client or DifyClient(settings)
+
     if facts_provider is None:
         if extra_tools:
             facts_provider = McpFactsProvider(extra_tools, default_city=settings.assistant_city)
@@ -137,6 +142,7 @@ def build_runtime(
         email_client=email_client,
         extra_tools=extra_tools,
         business_repo=business_repo,
+        dify_client=dify_client,
     )
     graph = build_graph(
         llm=llm,
@@ -157,6 +163,7 @@ def build_runtime(
         facts_provider=facts_provider,
         pg_pool=pg_pool,
         business_repo=business_repo,
+        dify_client=dify_client,
     )
 
 
@@ -172,6 +179,7 @@ def build_test_runtime(
     email_client=None,
     facts_provider=None,
     memory_store=None,
+    dify_client=None,
 ) -> AppRuntime:
     return build_runtime(
         settings,
@@ -186,4 +194,5 @@ def build_test_runtime(
         extra_tools=extra_tools,
         email_client=email_client,
         facts_provider=facts_provider,
+        dify_client=dify_client,
     )

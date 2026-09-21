@@ -1,19 +1,11 @@
 # Progress
 
 ## Current task
-Wrote the published-workflow API-key transport into `docs/modify/抖音运营智能体修改设计方案（1）.md`. `difyctl` is retired as the v1 default.
+Discuss table changes on top of `docs/modify/抖音运营智能体修改设计方案（1）.md` for Yuanqi-like plaza + agent sidebar. No worker code. No modify-doc rewrite until user confirms.
 
 ## Status
-Doc + doc tests + `.env.example` placeholders updated. No worker business code. No Dify workflow edits. No secrets in git.
-
-## Locked env names (empty until C publishes)
-- `DIFY_BASE_URL=http://192.168.1.158/v1`
-- `DIFY_API_KEY=`  (Service API `app-...`; only `.env`)
-- `DIFY_LEAD_APP_ID=douyin-lead-discovery`
-- `DOUYIN_HTTP_BASE_URL=`
-- `DOUYIN_HTTP_API_TOKEN=`
-Retired: `DIFYCTL_BIN`, `DIFY_COMMENT_APP_ID`, `DIFY_DM_APP_ID`.
+Read architecture, design-document, modify doc §11, and current tests. Table discussion in flight.
 
 ## Next
-- Wait for C to publish and provide the Service API key plus HTTP `base_url` / `api_token`.
-- Do not implement `DifyClient` / Settings until asked.
+- Confirm: 一人多实例, name unique scope, prompt/catalog storage, empty knowledge table or not, mode editable or display-only
+- After confirm, update modify doc §11 / §16 / tests, then implement later

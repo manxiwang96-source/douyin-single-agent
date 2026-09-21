@@ -1,6 +1,8 @@
 # Bugs and Risks
 
 ## Open
+- Plaza/sidebar discussion (not locked): doc v1 forbids 一人多实例 and an editable `agent_templates` table. New flow needs many instances per user, unique name, avatar/intro/mode timestamps, and sidebar prompt/workflow/tool/knowledge display. Do not treat that as schema truth until the user confirms.
+- If 一人多实例 lands, `(user_id, "profile")` Store namespace and `outputs/{user_id}/...` media paths will leak across a user's agents. That is not a SQL table change but must move with the instance unique-index change.
 - `difyctl auth login` remains blocked on host OpenAPI 404. Design now locks v1 on the published workflow Service API key, not CLI OAuth. Last inspect: `douyin-lead-discovery` unpublished, no API keys yet. App API key != `difyctl` `dfoa_` token; do not mix them.
 - User CMD vs PowerShell: `$env:PATH=...` in CMD yields 文件名、目录名或卷标语法不正确. Prefer the full exe path or `set "PATH=C:\Users\86153\AppData\Local\difyctl\bin;%PATH%"`. Shim no longer depends on `%LOCALAPPDATA%`.
 - `douyin-lead-discovery` is still draft-only (0 published versions, no API keys). `difyctl run` / Service API cannot live-run until C publishes.

@@ -292,6 +292,19 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             raise _http_error(404, "agent instance not found") from exc
         return instance_card(updated)
 
+    @app.delete("/v1/agent-instances/{agent_instance_id}")
+    def delete_instance(
+        agent_instance_id: str,
+        user: UserRecord = Depends(_auth_user),
+    ) -> dict[str, Any]:
+        instance = _owned_instance(user, agent_instance_id)
+        repo.archive_agent_instance(instance.agent_instance_id)
+        return {
+            "ok": True,
+            "agent_instance_id": str(instance.agent_instance_id),
+            "status": "archived",
+        }
+
     @app.post("/v1/agent-instances/{agent_instance_id}/open")
     def open_instance(agent_instance_id: str, user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:
         instance = _owned_instance(user, agent_instance_id)

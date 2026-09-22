@@ -21,6 +21,7 @@ def test_unauthenticated_business_routes_are_401(runtime):
     assert client.post("/v1/assistant/jobs/run", json={"kind": "morning_brief"}).status_code == 401
     assert client.post("/v1/jobs/00000000-0000-4000-8000-000000000001/disable").status_code == 401
     assert client.post("/v1/job-runs/00000000-0000-4000-8000-000000000002/cancel").status_code == 401
+    assert client.delete("/v1/agent-instances/00000000-0000-4000-8000-000000000001").status_code == 401
 
 
 def test_register_login_me_logout(runtime):
@@ -209,3 +210,50 @@ def test_other_user_cannot_see_instance(runtime):
     assert bob.get("/v1/agent-instances").json()["items"] == []
     assert bob.get(f"/v1/agent-instances/{instance_id}/sidebar").status_code == 404
     assert bob.post(f"/v1/agent-instances/{instance_id}/open").status_code == 404
+    assert bob.delete(f"/v1/agent-instances/{instance_id}").status_code == 404
+
+
+def test_owner_can_archive_instance(runtime):
+    client = make_client(runtime)
+    register_and_login(client)
+    created = client.post(
+        "/v1/agent-instances",
+        json={"template_code": "douyin_ops", "title": "agent-del", "intro": "x"},
+    )
+    assert created.status_code == 201
+    instance_id = created.json()["agent_instance_id"]
+    deleted = client.delete(f"/v1/agent-instances/{instance_id}")
+    assert deleted.status_code == 200
+    body = deleted.json()
+    assert body["ok"] is True
+    assert body["status"] == "archived"
+    assert body["agent_instance_id"] == instance_id
+    listed = client.get("/v1/agent-instances")
+    assert listed.status_code == 200
+    assert all(item["agent_instance_id"] != instance_id for item in listed.json()["items"])
+    reused = client.post(
+        "/v1/agent-instances",
+        json={"template_code": "douyin_ops", "title": "agent-del", "intro": "again"},
+    )
+    assert reused.status_code == 201
+    assert reused.json()["agent_instance_id"] != instance_id
+    assert client.post(f"/v1/agent-instances/{instance_id}/open").status_code == 404
+    assert client.get(f"/v1/agent-instances/{instance_id}/sidebar").status_code == 404
+    assert client.patch(f"/v1/agent-instances/{instance_id}", json={"title": "nope"}).status_code == 404
+    assert client.delete(f"/v1/agent-instances/{instance_id}").status_code == 404
+    assert client.delete("/v1/agent-instances/not-a-uuid").status_code == 404
+
+
+def test_other_user_cannot_archive_instance(runtime):
+    alice = make_client(runtime)
+    register_and_login(alice, login_name="alice")
+    created = alice.post(
+        "/v1/agent-instances",
+        json={"template_code": "douyin_ops", "title": "alice-keep", "intro": "x"},
+    )
+    instance_id = created.json()["agent_instance_id"]
+    bob = make_client(runtime)
+    register_and_login(bob, login_name="bob")
+    assert bob.delete(f"/v1/agent-instances/{instance_id}").status_code == 404
+    titles = [item["title"] for item in alice.get("/v1/agent-instances").json()["items"]]
+    assert titles == ["alice-keep"]

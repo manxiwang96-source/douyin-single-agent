@@ -1,14 +1,13 @@
 # Progress
 
 ## Current task
-下一窗口按 `docs/modify/抖音运营智能体删除HTTP实施套餐.md` 实现智能体实例逻辑删除 HTTP。
+智能体实例逻辑删除 HTTP 已落地。
 
 ## Status
-套餐已写入，代码尚未改。
-- 查询 `GET /v1/agent-instances`、修改 `PATCH /v1/agent-instances/{id}` 后端已有。
-- 删除只有仓库 `archive_agent_instance`，缺 `DELETE /v1/agent-instances/{id}`。
-- 本套餐锁定：逻辑归档、不改仓库、不改前端、不做物理删除/7 天清扫。
+- `DELETE /v1/agent-instances/{id}` 走现有 `archive_agent_instance`，HTTP 层 `_owned_instance` 鉴权。
+- 成功 200：`ok=true`、`status=archived`；未登录 401；不存在/他人/已归档/非法 UUID 404。
+- 归档后列表不再返回该卡；open / sidebar / patch / 二次 DELETE 404；同名可再建。
+- 未改仓库归档语义、未做物理删除/7 天清扫、未加 GET /{id}、未加服务端 keyword、未映射 Vue。
 
 ## Next
-新开对话读取该套餐，一次交付 DELETE HTTP + `tests/test_auth_plaza.py` + 更新 `memory-bank/architecture.md`。
-不要映射 Vue。不要重做阶段 0–7。
+前端暂不映射删除/修改。不要重做阶段 0–7。

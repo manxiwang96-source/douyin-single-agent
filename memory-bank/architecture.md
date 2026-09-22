@@ -56,7 +56,7 @@ ainvoke configurable carries thread_id / user_id / agent_instance_id / allowed_w
 
 ## HTTP entry
 - Auth: POST /v1/auth/register|login|logout, GET /v1/me
-- Plaza: GET/POST /v1/agent-instances, PATCH /v1/agent-instances/{id}, POST /v1/agent-instances/{id}/open, GET sidebar/avatar
+- Plaza: GET/POST /v1/agent-instances, PATCH /v1/agent-instances/{id}, DELETE /v1/agent-instances/{id}, POST /v1/agent-instances/{id}/open, GET sidebar/avatar
 - Chat: GET /v1/threads/{id}, POST /v1/threads/{id}/messages, POST /v1/threads/{id}/resume
 - Jobs: POST /v1/jobs/{job_id}/disable, POST /v1/job-runs/{run_id}/cancel
 - Leftover: POST /v1/assistant/jobs/run

@@ -37,5 +37,5 @@ Per-instance vector retrieve inside chatbot; seed douyin_ops demo; optional sear
 ## Data
 Deployment B: server Postgres is source of truth. Do not ALTER LangGraph official tables.
 
-## Next worker HTTP
-删除尚未暴露 HTTP。下一窗口只按 `docs/modify/抖音运营智能体删除HTTP实施套餐.md` 补 `DELETE /v1/agent-instances/{id}` 逻辑归档。查询/修改已有，前端暂不映射。
+## Plaza HTTP
+查询 `GET /v1/agent-instances`、修改 `PATCH /v1/agent-instances/{id}`、删除 `DELETE /v1/agent-instances/{id}` 已有。删除是逻辑归档 `status=archived`，不物理删行。前端暂不映射改/删。

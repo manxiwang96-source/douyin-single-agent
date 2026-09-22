@@ -92,6 +92,16 @@ def test_assistant_defaults():
     assert settings.mcp_enabled is True
 
 
+
+def test_default_cors_origins_include_vite_and_streamlit():
+    settings = Settings(_env_file=None)
+    origins = settings.cors_origin_list()
+    assert "http://localhost:5173" in origins
+    assert "http://127.0.0.1:5173" in origins
+    assert "http://localhost:8501" in origins
+    assert "http://127.0.0.1:8501" in origins
+
+
 def test_smtp_from_and_to_default_to_user():
     settings = Settings(smtp_user="user@163.com", smtp_password="x", smtp_from="", smtp_to="")
     assert settings.smtp_from == "user@163.com"
@@ -164,6 +174,7 @@ def test_env_example_has_assistant_fields_without_secrets():
         "SMTP_PASSWORD=",
         "SMTP_FROM=",
         "SMTP_TO=",
+        "CORS_ORIGINS=",
         "DIFY_TIMEOUT_S=300",
         "DIFY_LIVE_ENABLED=false",
     ]

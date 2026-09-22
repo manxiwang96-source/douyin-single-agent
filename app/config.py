@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     streamlit_api_base: str = "http://127.0.0.1:8000"
-    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
+    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501,http://localhost:5173,http://127.0.0.1:5173"
 
     postgres_uri: str = ""
     assistant_city: str = "广州"

@@ -24,6 +24,28 @@
 
 Streamlit 默认请求 `http://127.0.0.1:8000`，可用环境变量 `STREAMLIT_API_BASE` 覆盖。
 
+## Vue 智能体模块
+
+工人 HTTP 仍由 FastAPI 提供。Vue 是可独立启动的广场/对话模块，Streamlit 仍可作为过渡客户端保留。
+
+```powershell
+.\venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
+cd frontend
+npm install
+npm run dev
+```
+
+浏览器打开 `http://localhost:5173`。开发服务器把 `/v1` 代理到 `http://127.0.0.1:8000`；默认 `VITE_API_BASE` 为空走同源代理。直连后端时再设绝对地址。
+
+闭环：登录/注册 → 「我的智能体」→ 「新建智能体」两步弹窗 → 点卡片进入对话（中间聊天 + 右侧只读侧边栏）。
+
+前端测试：
+
+```powershell
+cd frontend
+npm test
+```
+
 手动触发任务：`POST /v1/assistant/jobs/run`，body 为 `{"kind":"morning_brief"}` 或 `{"kind":"hydrate","slot":"10"}`。
 
 ## 测试

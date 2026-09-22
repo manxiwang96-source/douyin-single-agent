@@ -3,10 +3,10 @@
 ## Product
 This repository is the 抖音运营智能体 worker. It is independently runnable. It is not the supervisor and not classmate C's Dify. Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`. Phased execution: `stage/README.md` and `stage/抖音运营智能体分阶段实施套餐.md`.
 
-User entry: login -> create a `douyin_ops` instance (name/intro/avatar, one user many instances) -> click the 广场 card -> chat + read-only sidebar. Capabilities are displayed, not checked. Opening a thread does not bump card `updated_at`.
+User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (name/intro/avatar, one user many instances) -> click the 广场 card -> chat + read-only sidebar). Streamlit remains a transitional client. Capabilities are displayed, not checked. Opening a thread does not bump card `updated_at`.
 
 ## Layout
-- app/config.py: Settings from env; Dify + Douyin HTTP fields; `scheduler_enabled` default false; `dify_live_enabled` default false in code / `.env.example`; production validation; `public_config()` never returns secrets
+- app/config.py: Settings from env; Dify + Douyin HTTP fields; `scheduler_enabled` default false; `dify_live_enabled` default false in code / `.env.example`; default `cors_origins` allow Streamlit `8501` and Vue `5173`; production validation; `public_config()` never returns secrets
 - app/catalog.py: read-only `douyin_ops` template, workflow `douyin-lead-discovery`, tool `discover_douyin_leads`
 - app/postgres.py: create database if missing; ConnectionPool + PostgresSaver.setup() + PostgresStore.setup() with pgvector index; apply business schema; no SQLite fallback
 - app/sql/001_business.sql: Douyin worker business tables; never ALTER checkpoints* / store
@@ -32,7 +32,8 @@ User entry: login -> create a `douyin_ops` instance (name/intro/avatar, one user
 - app/prompts.py: identity is 抖音运营助手; must say 会真实发送 then immediately call `discover_douyin_leads`; do not ask for keyword when `video_id` is present; channels stay `comment,message`; no Xiaohongshu note template
 - app/serialize.py: thread JSON with media URLs and review_media interrupt
 - ui/view_model.py: plaza cards, readonly sidebar, auth_gate so a thread exists only after login and /open
-- ui/streamlit_app.py: Streamlit v1 client over existing HTTP; token in session_state as Bearer
+- ui/streamlit_app.py: Streamlit v1 client over existing HTTP; token in session_state as Bearer; transitional, not deleted
+- frontend/: Vue 3 + Vite plaza module; routes `/login`, `/agents`, `/agents/:agentInstanceId`; Bearer in localStorage; CSS prefix `agent-`
 - knowledge/douyin_ops_demo/*.md: per-instance demo KB
 - tests/: mocked suite; optional RUN_LIVE_API=1 / RUN_LIVE_ASSISTANT=1 leftovers; Douyin delivery gate RUN_LIVE_DOUYIN=1 in tests/test_live_douyin.py
 
@@ -60,7 +61,7 @@ ainvoke configurable carries thread_id / user_id / agent_instance_id / allowed_w
 - Jobs: POST /v1/jobs/{job_id}/disable, POST /v1/job-runs/{run_id}/cancel
 - Leftover: POST /v1/assistant/jobs/run
 - Old unauthenticated POST /v1/threads is rejected; use /open after login
-- Streamlit is the v1 plaza stand-in; FastAPI Bearer JSON is the contract for the later frontend
+- Vue `frontend/` is the plaza module client; Streamlit remains the transitional stand-in; FastAPI Bearer JSON is the contract
 
 ## Dify
 v1 has one product tool `discover_douyin_leads` bound to published workflow `douyin-lead-discovery`.
@@ -75,8 +76,9 @@ v1 does not review outbound comments/DMs.
 
 ## Runtime processes
 1. uvicorn app.main:create_app --factory
-2. streamlit run ui/streamlit_app.py
-3. scheduler_enabled stays false unless explicitly turned on; Douyin 08:00 scan is not in this worker yet
+2. streamlit run ui/streamlit_app.py (transitional client)
+3. cd frontend && npm run dev (Vue plaza module on 5173, proxy `/v1` to 8000)
+4. scheduler_enabled stays false unless explicitly turned on; Douyin 08:00 scan is not in this worker yet
 
 ## Delivery
 Default pytest is fully mocked and injects FakeDifyClient; zero real Dify POST.

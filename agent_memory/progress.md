@@ -1,15 +1,18 @@
 # Progress
 
 ## Current task
-Vue 前端实施套餐已写成 `docs/modify/抖音运营智能体Vue前端实施套餐.md`，并改成一次完整交付。本对话不要写 `frontend/`，不要改 CORS。
+一次交付 Vue 前端闭环：CORS → 脚手架 → 登录 → 广场两步弹窗 → 对话+只读侧边栏，接到现有 FastAPI。
 
 ## Status
-工人阶段 0–7 已完成：登录广场 HTTP、实例隔离、DifyClient 真发门禁、任务取消、Streamlit 过渡客户端均已落地。
-默认 pytest 仍注入 FakeDifyClient，零真发。
-本地 `.env` 的 `DIFY_LIVE_ENABLED=true` 未提交。
-prompt 已收紧：有 video_id 不再要 keyword；`channels` 归一为 `comment`/`message`/`comment,message`。
-套餐第 8 节的阶段 0–5 只是下一窗口内部施工顺序，不是要开 6 个对话。
+已完成，不要重做。
+- 默认 CORS 含 Streamlit 8501 与 Vue 5173。
+- frontend/ Vue 3 + Vite 模块已落地：登录/注册、广场两步弹窗、卡片、对话+只读侧边栏。
+- Vitest 15 passed（含 login→modal→card→chat 与 HITL 禁用输入）。
+- vue-tsc + vite build 通过。
+- 默认 pytest 176 passed, 5 skipped（未开 RUN_LIVE_DOUYIN）。
+- 已对现网 FastAPI 跑通 register→login→create→list→open→sidebar→thread；sidebar 含工作流「抖音线索发现与触达」和工具 discover_douyin_leads，无 model 栏。
+- 未做 Dify 真发。缺 live 配置不算交付成功。
 
 ## Next
-新对话读取 Vue 套餐第 0 节粘贴块，在同一个目标模式窗口一次交付：CORS → 脚手架 → 登录 → 广场两步弹窗 → 对话+只读侧边栏，接到现有 FastAPI 跑通闭环。未跑通 登录→新建弹窗→卡片→对话 不算交付。
+仅当本地 DIFY_LIVE_ENABLED=true 且与 C 错开时，在 Vue 里手动真发一条 discover_douyin_leads。
 抖音 8 点调度不在本套餐。

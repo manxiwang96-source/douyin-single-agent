@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from app.dify_client import normalize_job_status, parse_json_value
 from app.repository import (
     DEFAULT_WORKFLOW_CODE,
     ENGAGE_COMMENT_STATUSES,
@@ -133,29 +134,46 @@ def find_in_progress_run(repo, user_id: UUID, agent_instance_id: UUID, inputs: d
 def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        try:
-            return _as_list(json.loads(value))
-        except Exception:
-            return []
-    if isinstance(value, dict):
+    parsed = parse_json_value(value)
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
         for key in ("data", "items", "list", "comments", "messages", "videos", "result"):
-            if isinstance(value.get(key), list):
-                return value[key]
-        return [value]
+            if isinstance(parsed.get(key), list):
+                return parsed[key]
+        return [parsed]
     return []
 
 
-def _item_status(item: dict[str, Any], allowed: frozenset[str], default: str) -> str:
+def _delivery_items(value: Any) -> tuple[list[Any], str | None]:
+    """Only explicit arrays/array wrappers are records; error objects stay errors."""
+    if value is None or value == "":
+        return [], "delivery response unavailable"
+    parsed = parse_json_value(value)
+    if isinstance(parsed, list):
+        return parsed, None
+    if not isinstance(parsed, dict):
+        return [], "delivery response is not a list"
+    if parsed.get("ok") is False or parsed.get("error") or parsed.get("message"):
+        return [], _first_text(parsed, "error", "message") or "delivery request failed"
+    for key in ("data", "items", "list", "comments", "messages", "result"):
+        if isinstance(parsed.get(key), list):
+            return parsed[key], None
+    return [], "delivery response is not a list"
+
+
+def _item_status(item: dict[str, Any], allowed: frozenset[str], default: str = "unverified") -> str:
     raw = str(item.get("status") or item.get("send_status") or "").strip().lower()
     if raw in allowed:
         return raw
+    if raw in {"success", "succeeded", "completed", "delivered"}:
+        return "sent"
     if "login" in raw:
         return "needs_login"
     if raw in {"fail", "failed", "error"}:
         return "failed"
+    if raw in {"cancelled", "canceled"}:
+        return "cancelled"
     return default
 
 
@@ -165,6 +183,54 @@ def _first_text(item: dict[str, Any], *keys: str) -> str:
         if value is not None and str(value).strip():
             return str(value)
     return ""
+
+
+def _delivery_result(outputs: Any, *, job_status: str) -> tuple[dict[str, dict[str, int]], list[dict[str, Any]], list[str], bool]:
+    payload = outputs if isinstance(outputs, dict) else {}
+    delivery = {
+        "comments": {"sent": 0, "failed": 0, "unverified": 0},
+        "dms": {"sent": 0, "failed": 0, "unverified": 0},
+    }
+    message_details: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for output_key, channel, allowed in (
+        ("list_comment", "comments", ENGAGE_COMMENT_STATUSES),
+        ("list_message", "dms", ENGAGE_DM_STATUSES),
+    ):
+        items, response_error = _delivery_items(payload.get(output_key))
+        if response_error:
+            delivery[channel]["failed"] += 1 if response_error != "delivery response unavailable" else 0
+            delivery[channel]["unverified"] += 1 if response_error == "delivery response unavailable" else 0
+            errors.append(f"{channel}: {response_error}")
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                delivery[channel]["unverified"] += 1
+                errors.append(f"{channel}: delivery item is not an object")
+                continue
+            dify_status = _item_status(item, allowed)
+            status = dify_status
+            if job_status != "succeeded" and status == "sent":
+                status = "unverified"
+            if status == "sent":
+                delivery[channel]["sent"] += 1
+            elif status in {"failed", "needs_login", "cancelled"}:
+                delivery[channel]["failed"] += 1
+            else:
+                delivery[channel]["unverified"] += 1
+            if status in {"failed", "needs_login", "cancelled"} and item.get("error"):
+                errors.append(str(item["error"]))
+            if channel == "dms":
+                detail = dict(item)
+                if dify_status != status:
+                    detail["dify_status"] = dify_status
+                detail["status"] = status
+                message_details.append(detail)
+    delivery_ok = job_status == "succeeded" and not errors and all(
+        counts["failed"] == 0 and counts["unverified"] == 0
+        for counts in delivery.values()
+    )
+    return delivery, message_details, errors, delivery_ok
 
 
 def apply_engage_writeback(
@@ -178,8 +244,8 @@ def apply_engage_writeback(
     keyword: str | None = None,
 ) -> dict[str, int]:
     payload = outputs if isinstance(outputs, dict) else {}
-    comments = _as_list(payload.get("list_comment"))
-    messages = _as_list(payload.get("list_message"))
+    comments, _ = _delivery_items(payload.get("list_comment"))
+    messages, _ = _delivery_items(payload.get("list_message"))
     videos = _as_list(payload.get("snapshot"))
     if not videos and isinstance(payload.get("snapshot"), dict):
         videos = _as_list(payload["snapshot"].get("videos"))
@@ -196,7 +262,7 @@ def apply_engage_writeback(
             keyword=item.get("keyword") or keyword,
             title=item.get("title"),
             url=item.get("url") or item.get("share_url"),
-            status=status,
+            status=status if status in ENGAGE_VIDEO_STATUSES else "discovered",
             thread_id=thread_id,
             workflow_run_id=workflow_run_id,
         )
@@ -204,6 +270,7 @@ def apply_engage_writeback(
     for item in comments:
         if not isinstance(item, dict):
             continue
+        status = _item_status(item, ENGAGE_COMMENT_STATUSES)
         repo.add_engage_comment(
             user_id,
             agent_instance_id,
@@ -211,7 +278,7 @@ def apply_engage_writeback(
             video_id=_first_text(item, "video_id", "aweme_id", "platform_video_id") or "unknown",
             source_text=_first_text(item, "source_text", "text", "content", "comment"),
             candidate_reply=_first_text(item, "candidate_reply", "reply", "approved_reply"),
-            status=_item_status(item, ENGAGE_COMMENT_STATUSES, "sent"),
+            status=status if status in ENGAGE_COMMENT_STATUSES else "proposed",
             thread_id=thread_id,
             workflow_run_id=workflow_run_id,
         )
@@ -219,14 +286,15 @@ def apply_engage_writeback(
     for item in messages:
         if not isinstance(item, dict):
             continue
+        status = _item_status(item, ENGAGE_DM_STATUSES)
         repo.add_engage_dm(
             user_id,
             agent_instance_id,
             platform_message_id=_first_text(item, "platform_message_id", "message_id", "id") or "unknown",
             video_id=_first_text(item, "video_id", "aweme_id", "platform_video_id") or "unknown",
             source_text=_first_text(item, "source_text", "text", "content", "message"),
-            candidate_reply=_first_text(item, "candidate_reply", "reply", "approved_reply"),
-            status=_item_status(item, ENGAGE_DM_STATUSES, "sent"),
+            candidate_reply=_first_text(item, "candidate_reply", "reply", "approved_reply", "content"),
+            status=status if status in ENGAGE_DM_STATUSES else "proposed",
             thread_id=thread_id,
             workflow_run_id=workflow_run_id,
         )
@@ -234,21 +302,31 @@ def apply_engage_writeback(
     return written
 
 
-def summarize_lead_result(*, status: str, outputs: Any, written: dict[str, int], error: str | None) -> str:
-    if error:
-        return error
+def summarize_lead_result(
+    *,
+    status: str,
+    outputs: Any,
+    written: dict[str, int],
+    error: str | None,
+    delivery: dict[str, dict[str, int]] | None = None,
+) -> str:
     parts = [f"status={status}"]
-    if written["videos"] or written["comments"] or written["dms"]:
+    if delivery is not None:
         parts.append(
-            f"wrote videos={written['videos']} comments={written['comments']} dms={written['dms']}"
+            "delivery="
+            + ",".join(
+                f"{channel}:sent={counts['sent']} failed={counts['failed']} unverified={counts['unverified']}"
+                for channel, counts in delivery.items()
+            )
         )
+    if error:
+        parts.append(f"error={error}")
     elif isinstance(outputs, dict) and outputs:
         keys = ",".join(sorted(str(key) for key in outputs.keys()))
         parts.append(f"outputs={keys}")
     else:
         parts.append("no structured engage rows")
     return "; ".join(parts)
-
 
 def run_discover_douyin_leads(
     *,
@@ -268,11 +346,7 @@ def run_discover_douyin_leads(
     thread_id = str(configurable.get("thread_id") or "") or None
     allowed = list(configurable.get("allowed_workflow_codes") or [])
     if LEAD_WORKFLOW_CODE not in allowed:
-        return {
-            "ok": False,
-            "error": "workflow not bound",
-            "status": "failed",
-        }
+        return {"ok": False, "error": "workflow not bound", "status": "failed"}
     missing = validate_lead_args(account=account, keyword=keyword, video_id=video_id)
     if missing:
         return {"ok": False, "error": missing, "status": "failed"}
@@ -322,40 +396,88 @@ def run_discover_douyin_leads(
         dify_app_id=getattr(settings, "dify_lead_app_id", None),
     )
     result = dify_client.run(LEAD_WORKFLOW_CODE, inputs, user=str(user_id))
-    status = str(result.get("status") or ("succeeded" if result.get("ok") else "failed"))
-    if status not in WORKFLOW_RUN_STATUSES:
+    outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else {}
+    dify_workflow_status = str(result.get("dify_workflow_status") or "unverified")
+    workflow_ok = bool(result.get("workflow_ok"))
+    job_status = normalize_job_status(result.get("job_status"))
+    if job_status == "unverified" and isinstance(outputs, dict):
+        response = parse_json_value(outputs.get("job_response"))
+        response_dict = response if isinstance(response, dict) else {}
+        response_data = response_dict.get("data") if isinstance(response_dict.get("data"), dict) else {}
+        job_status = normalize_job_status(response_data.get("status") or response_dict.get("status") or outputs.get("job_status"))
+    status = str(result.get("status") or (job_status if job_status != "unverified" else "failed"))
+    if status not in WORKFLOW_RUN_STATUSES and status not in {"unverified"}:
         status = "failed"
-    outputs = result.get("outputs")
-    error = result.get("error")
+    job_id = result.get("job_id") or outputs.get("job_id")
     workflow_run_id = result.get("workflow_run_id")
-    updated = business_repo.update_workflow_run(
-        run.id,
-        status=status,
-        outputs=outputs if isinstance(outputs, dict) else None,
-        error=None if result.get("ok") else (error or status),
-        workflow_run_id=workflow_run_id,
-    )
+    task_error = result.get("error")
+    if job_status == "unverified" and not task_error:
+        task_error = "job status unavailable"
+    if job_status == "failed" and not task_error:
+        task_error = "job failed"
+    delivery, message_details, delivery_errors, delivery_ok = _delivery_result(outputs, job_status=job_status)
+    error = task_error or (delivery_errors[0] if delivery_errors else None)
+    if job_status == "succeeded" and delivery_errors and not error:
+        error = delivery_errors[0]
+    if job_status == "succeeded" and delivery_ok:
+        status = "succeeded"
+    elif job_status == "succeeded" and any(
+        counts["unverified"] > 0 and counts["failed"] == 0 for counts in delivery.values()
+    ) and not any(counts["failed"] > 0 for counts in delivery.values()):
+        status = "unverified"
+    elif job_status == "cancelled":
+        status = "cancelled"
+    elif job_status == "timeout":
+        status = "timeout"
+    elif job_status == "failed":
+        status = "failed"
+    elif job_status == "unverified":
+        status = "unverified"
+    else:
+        status = "failed"
     written = {"videos": 0, "comments": 0, "dms": 0}
-    if result.get("ok"):
+    if job_status == "succeeded":
         try:
             written = apply_engage_writeback(
                 business_repo,
                 user_id=user_id,
                 agent_instance_id=agent_instance_id,
                 thread_id=thread_id,
-                workflow_run_id=workflow_run_id or str(updated.id),
+                workflow_run_id=workflow_run_id or str(run.id),
                 outputs=outputs,
                 keyword=inputs.get("keyword"),
             )
         except Exception:
             written = {"videos": 0, "comments": 0, "dms": 0}
-    summary = summarize_lead_result(status=status, outputs=outputs, written=written, error=None if result.get("ok") else error)
+    persisted_status = "failed" if status == "unverified" else status
+    updated = business_repo.update_workflow_run(
+        run.id,
+        status=persisted_status,
+        outputs=outputs if isinstance(outputs, dict) else None,
+        error=error,
+        workflow_run_id=workflow_run_id,
+    )
+    ok = bool(workflow_ok and job_status == "succeeded" and delivery_ok)
+    summary = summarize_lead_result(
+        status=status,
+        outputs=outputs,
+        written=written,
+        error=error,
+        delivery=delivery,
+    )
     return {
-        "ok": bool(result.get("ok")),
+        "ok": ok,
+        "workflow_ok": workflow_ok,
+        "delivery_ok": delivery_ok,
         "status": status,
+        "dify_workflow_status": dify_workflow_status,
+        "job_status": job_status,
         "workflow_run_id": workflow_run_id,
+        "job_id": job_id,
         "id": str(updated.id),
+        "error": error,
+        "delivery": delivery,
+        "message_details": message_details,
         "summary": summary,
         "written": written,
-        "error": None if result.get("ok") else (error or status),
     }

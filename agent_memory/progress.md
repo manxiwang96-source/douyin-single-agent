@@ -1,14 +1,16 @@
 # Progress
 
 ## Current task
-整理“抖音运营智能体 Dify 真实状态回传实施套餐”，供后续新对话执行后端代码修改。
+按 `docs/modify/抖音运营智能体Dify真实状态回传实施套餐.md` 完成后端真实 Dify 状态回传。
 
 ## Status
-- 已新增 `docs/modify/抖音运营智能体Dify真实状态回传实施套餐.md`，明确以 DSL 的 `job_status/job_response` 作为用户可见任务状态依据。
-- 已新增 `tests/test_dify_status_return_playbook_doc.py`，校验文档的范围、状态契约、防止错误响应伪装成功和密钥泄露。
-- 当前未修改业务代码；未宣称真实状态回传已经落地。
-- 相关测试与完整 pytest 已通过；live Dify/抖音发送未触发。
-- `.local/` 是预先存在的未跟踪目录，本次不处理、不提交。
+- 已读取 AGENTS、架构/设计文档、agent_memory、实施套餐及 `D:\浏览器下载路径\douyin-lead-discovery.yml`；DSL 文件可访问且未修改。
+- `app/dify_client.py` 已区分外层 `dify_workflow_status` 与 DSL `job_status`，解析 `job_response` 的 `data.status`/根级 `status`，支持 `success/succeeded/failed/error/cancelled/canceled/timeout`，缺失/未知返回 `unverified` 和 `job status unavailable`。
+- `app/leads.py` 已返回 `workflow_ok`、`delivery_ok`、最终 `status`、`delivery`、`message_details`、`job_id`；列表错误对象不入记录，逐条未确认不计入 `sent`，`written` 仅代表本地写入。
+- 已更新 `tests/test_dify_client.py`、`tests/test_discover_leads.py`、`tests/fakes.py`，覆盖外层成功/内层失败、error、cancelled、缺失/未知、列表错误对象、私信明细、失败原因和 written 不覆盖真实失败。
+- 相关测试通过：`pytest -q tests/test_dify_client.py tests/test_discover_leads.py tests/test_dify_status_return_playbook_doc.py`。
+- 完整测试通过：`pytest -q`，结果为 199 passed、6 skipped（含既有 warning）。未触发真实 Dify 或真实抖音发送。
+- `.local/` 是预先存在的未跟踪目录，本次未处理、不提交。
 
 ## Next
-在新对话按实施套餐执行后端 Dify 结果解析、状态归一化、发送明细和错误原因回传；完成后补业务测试、更新本文件与 `bugs.md`，同步架构记录并创建中文 Git commit。
+- 完成 diff/敏感信息/范围检查后，创建中文 Git commit；交付前确认仅修改后端解析、测试和项目记忆文件。

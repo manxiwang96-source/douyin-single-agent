@@ -74,8 +74,8 @@ If local `DOUYIN_HTTP_BASE_URL` is empty, send C's published start-node default 
 In-progress runs in a 10-minute window are reused. Each real call writes `workflow_runs`; list_comment/list_message/snapshot writeback is best-effort.
 v1 does not review outbound comments/DMs.
 
-### Planned Dify result contract (not implemented in this turn)
-The handoff in `docs/modify/抖音运营智能体Dify真实状态回传实施套餐.md` defines the next backend change: retain outer `dify_workflow_status` separately from DSL-derived `job_status`/`job_response`; normalize delivery to `sent`, `failed`, `cancelled`, or `unverified`; expose `workflow_ok`, `delivery_ok`, `status`, `delivery`, and `message_details`; never infer successful delivery from `written` or a list error object. This is a planned contract only until the next implementation turn lands and tests it.
+### Dify result contract (landed 2026-09-22)
+`DifyClient` retains outer `dify_workflow_status` separately from DSL-derived `job_status`/`job_response`. `job_response.data.status` or root `status` has priority over the DSL loop variable, and missing/unknown job state is `unverified` with `job status unavailable`; it never defaults to success. `discover_douyin_leads` exposes `workflow_ok`, `delivery_ok`, final `status`, `delivery`, `message_details`, `job_id`, and the two distinct status fields. Only explicit per-item success counts as `delivery.*.sent`; list error objects are errors, not records, and `written` remains local persistence count only. If the job is not succeeded, list results cannot prove successful delivery. The workflow run table persists `unverified` as `failed` because its existing database status constraint does not include `unverified`; the tool response preserves the user-visible `unverified` state.
 
 ## Runtime processes
 1. uvicorn app.main:create_app --factory

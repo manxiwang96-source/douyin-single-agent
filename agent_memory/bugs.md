@@ -1,8 +1,8 @@
 # Bugs and Risks
 
 ## Open
-- Dify 真实状态回传套餐已整理但尚未实现；当前业务代码仍可能只依据外层 workflow 结果，不能把本次文档交付视为修复完成。
-- 后续实现必须确认 `job_response` 的 `data.status`/顶层 `status`、`list_message`/`list_comment` 原始响应结构；缺失或未知状态必须保持 `unverified`，不能默认 `sent`。
+- 已关闭：Dify 真实状态回传已落地并通过相关及完整 pytest；后续若 DSL 输出结构变化，需继续以实际 `job_response`/列表响应样本补回归测试。
+- 当前有效限制：`job_response`、`list_message`、`list_comment` 仍按 DSL 原始字符串/JSON 兼容解析；缺失或未知状态保持 `unverified`，不能默认 `sent`。
 - DSL 的列表节点未明确绑定本次 `job_id`/`run_id` 时，历史列表记录混入本次结果的风险仍存在；本次只记录风险，不修改 C 的 DSL。
 - Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。
 - 现网若未重启 uvicorn，5173 Origin 直连仍无 CORS 头；npm run dev 走 /v1 proxy 可联调，不能代替重启后的 CORS。
@@ -11,7 +11,7 @@
 - Morning-brief JOBS_NAMESPACE ("assistant", "jobs") remains global; conversation profile/KB/media are isolated as of phase 3.
 - Phone-off 08:00 jobs fail if job tables are ever moved to the client.
 - Feishu bot and this worker might both true-send if run together. Phase 7 live already ran; later live still needs to stagger with C.
-- list_comment / list_message / snapshot live JSON samples are still unconfirmed; writeback is best-effort.
+- list_comment / list_message / snapshot 的完整 live JSON 样本仍未在本窗口触发；解析已覆盖数组、数组包装和错误对象，真实联调仍需人工控制。
 - ~/.codex/templates/agent_memory/ is still missing; files follow the existing three-file layout.
 - Live ChatOpenAI against aitokens.website can exceed 20s; unrelated.
 - Pre-existing dirty file docs/summary/个人超级助手总结与逻辑复盘（2）.md makes test_each_heading_starts_with_plain_language fail (## 0. heading without nearby 白话). Left untouched.

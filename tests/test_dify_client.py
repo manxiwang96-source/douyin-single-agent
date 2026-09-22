@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from app.dify_client import DifyClient
+from app.dify_client import DifyClient, parse_dify_workflow_payload
 
 
 def test_live_disabled_without_http_client_does_not_post(settings, monkeypatch):
@@ -84,7 +84,7 @@ def test_http_body_stringifies_select_bools(settings):
 
     def handler(request: httpx.Request) -> httpx.Response:
         posts.append(request)
-        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {}}})
+        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
@@ -154,7 +154,7 @@ def test_owned_client_fills_required_defaults_from_parameters(settings, monkeypa
 
         def post(self, url, headers=None, json=None, timeout=None):
             posts.append(json)
-            return FakeResponse(200, {"data": {"id": "wf-1", "status": "succeeded", "outputs": {}}})
+            return FakeResponse(200, {"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
 
         def close(self):
             pass
@@ -180,7 +180,7 @@ def test_client_always_forces_no_send_false(settings):
 
     def handler(request: httpx.Request) -> httpx.Response:
         posts.append(request)
-        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {}}})
+        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
@@ -190,3 +190,69 @@ def test_client_always_forces_no_send_false(settings):
     body = json.loads(posts[0].content)
     assert body["inputs"]["no_send"] == "false"
     assert body["inputs"]["account"] == "shop1"
+
+
+
+def test_parse_dify_payload_outer_success_does_not_override_failed_job():
+    result = parse_dify_workflow_payload(
+        {
+            "data": {
+                "id": "wf-1",
+                "status": "succeeded",
+                "outputs": {
+                    "job_id": "job-1",
+                    "job_status": "succeeded",
+                    "job_response": '{"data":{"status":"failed","error":"当前账号未登录"}}',
+                },
+            }
+        }
+    )
+    assert result["dify_workflow_status"] == "succeeded"
+    assert result["workflow_ok"] is True
+    assert result["job_status"] == "failed"
+    assert result["status"] == "failed"
+    assert result["ok"] is False
+    assert result["job_id"] == "job-1"
+    assert result["error"] == "当前账号未登录"
+
+
+def test_parse_dify_payload_maps_error_and_cancelled_job_states():
+    failed = parse_dify_workflow_payload(
+        {"data": {"status": "succeeded", "outputs": {"job_status": "error"}}}
+    )
+    cancelled = parse_dify_workflow_payload(
+        {"data": {"status": "succeeded", "outputs": {"job_status": "canceled"}}}
+    )
+    assert failed["status"] == "failed"
+    assert failed["job_status"] == "failed"
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["job_status"] == "cancelled"
+    assert cancelled["ok"] is False
+
+
+def test_parse_dify_payload_missing_or_unknown_job_is_unverified():
+    missing = parse_dify_workflow_payload({"data": {"status": "succeeded", "outputs": {}}})
+    unknown = parse_dify_workflow_payload(
+        {"data": {"status": "succeeded", "outputs": {"job_status": "brand_new"}}}
+    )
+    assert missing["status"] == "unverified"
+    assert missing["job_status"] == "unverified"
+    assert missing["error"] == "job status unavailable"
+    assert unknown["status"] == "unverified"
+    assert unknown["job_status"] == "unverified"
+    assert unknown["error"] == "job status unavailable"
+
+
+def test_parse_dify_payload_prefers_job_response_status_and_root_status_is_supported():
+    result = parse_dify_workflow_payload(
+        {
+            "status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"status":"timeout"}',
+            },
+        }
+    )
+    assert result["dify_workflow_status"] == "succeeded"
+    assert result["job_status"] == "timeout"
+    assert result["status"] == "timeout"

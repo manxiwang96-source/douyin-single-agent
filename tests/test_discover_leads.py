@@ -212,13 +212,16 @@ def test_successful_fake_run_writes_workflow_and_engage_rows(runtime, settings):
     assert repo.list_engage_dms(user.user_id, instance.agent_instance_id)
 
 
-def test_unknown_outputs_still_succeed_and_record_workflow_run(runtime, settings):
+def test_unknown_outputs_are_unverified_and_record_workflow_run(runtime, settings):
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "shape-a")
     client = FakeDifyClient(
         {
             "ok": True,
             "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "job_status": "succeeded",
             "workflow_run_id": "wf-odd",
             "outputs": {"unexpected": {"raw": True}},
             "error": None,
@@ -232,12 +235,179 @@ def test_unknown_outputs_still_succeed_and_record_workflow_run(runtime, settings
         account="shop1",
         keyword="敏感肌",
     )
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["status"] == "unverified"
+    assert "delivery response unavailable" in result["error"]
     runs = repo.list_workflow_runs(user.user_id, instance.agent_instance_id)
     assert len(runs) == 1
     assert runs[0].outputs == {"unexpected": {"raw": True}}
     assert repo.list_engage_comments(user.user_id, instance.agent_instance_id) == []
 
+
+
+
+def _run_with_result(runtime, settings, result):
+    repo = runtime.business_repo
+    user = repo.create_user(f"lead-user-{len(repo._users)}", "hash-not-secret")
+    instance = repo.create_agent_instance(user.user_id, f"status-{len(repo._workflow_runs)}", intro="ops")
+    repo.bind_workflow(user.user_id, instance.agent_instance_id, DEFAULT_WORKFLOW_CODE)
+    client = FakeDifyClient(result)
+    output = run_discover_douyin_leads(
+        settings=settings,
+        business_repo=repo,
+        dify_client=client,
+        configurable=_configurable(user, instance),
+        account="shop1",
+        keyword="敏感肌",
+    )
+    return output, repo, user, instance
+
+
+def test_outer_success_inner_job_failed_is_not_success(runtime, settings):
+    result, repo, user, instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": False,
+            "status": "failed",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "workflow_run_id": "wf-failed",
+            "job_id": "job-failed",
+            "job_status": "failed",
+            "outputs": {
+                "job_id": "job-failed",
+                "job_status": "failed",
+                "job_response": '{"data":{"status":"failed","error":"当前账号未登录"}}',
+                "list_comment": '{"ok":false,"error":"评论接口失败"}',
+                "list_message": '{"ok":false,"error":"私信接口失败"}',
+            },
+            "error": "当前账号未登录",
+        },
+    )
+    assert result["ok"] is False
+    assert result["workflow_ok"] is True
+    assert result["delivery_ok"] is False
+    assert result["status"] == "failed"
+    assert result["dify_workflow_status"] == "succeeded"
+    assert result["job_status"] == "failed"
+    assert result["error"] == "当前账号未登录"
+    assert result["delivery"]["comments"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert result["message_details"] == []
+    assert repo.list_engage_comments(user.user_id, instance.agent_instance_id) == []
+
+
+def test_cancelled_and_unknown_job_status_are_not_success(runtime, settings):
+    cancelled, *_ = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": False,
+            "status": "cancelled",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "job_status": "cancelled",
+            "outputs": {"job_status": "cancelled"},
+            "error": "job cancelled",
+        },
+    )
+    unknown, *_ = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": False,
+            "status": "unverified",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "job_status": "unverified",
+            "outputs": {},
+            "error": "job status unavailable",
+        },
+    )
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["ok"] is False
+    assert unknown["status"] == "unverified"
+    assert unknown["error"] == "job status unavailable"
+    assert unknown["ok"] is False
+
+
+def test_list_error_objects_are_not_records_and_dm_details_preserve_dify_fields(runtime, settings):
+    result, repo, user, instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "workflow_run_id": "wf-delivery",
+            "job_id": "job-delivery",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"status":"succeeded"}',
+                "list_comment": '{"ok":false,"error":"评论列表失败"}',
+                "list_message": [
+                    {
+                        "message_id": "m-1",
+                        "video_id": "v-1",
+                        "source_text": "多少钱",
+                        "content": "您好，售价99元",
+                        "content_source": "template",
+                        "status": "sent",
+                    }
+                ],
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is False
+    assert result["delivery_ok"] is False
+    assert result["delivery"]["comments"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert result["delivery"]["dms"] == {"sent": 1, "failed": 0, "unverified": 0}
+    assert result["message_details"] == [
+        {
+            "message_id": "m-1",
+            "video_id": "v-1",
+            "source_text": "多少钱",
+            "content": "您好，售价99元",
+            "content_source": "template",
+            "status": "sent",
+        }
+    ]
+    assert repo.list_engage_comments(user.user_id, instance.agent_instance_id) == []
+    dms = repo.list_engage_dms(user.user_id, instance.agent_instance_id)
+    assert len(dms) == 1
+    assert dms[0].status == "sent"
+
+
+def test_written_count_does_not_override_failed_delivery(runtime, settings):
+    result, _repo, _user, _instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "workflow_run_id": "wf-written",
+            "job_id": "job-written",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "list_message": [
+                    {"message_id": "m-failed", "status": "failed", "error": "窗口打开失败"}
+                ],
+                "list_comment": [],
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is False
+    assert result["written"]["dms"] == 1
+    assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert "发送成功 1" not in result["summary"]
 
 def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
     repo = runtime.business_repo

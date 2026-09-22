@@ -40,9 +40,9 @@ Deployment B: server Postgres is source of truth. Do not ALTER LangGraph officia
 ## Plaza HTTP
 查询 `GET /v1/agent-instances`、修改 `PATCH /v1/agent-instances/{id}`、删除 `DELETE /v1/agent-instances/{id}` 已有。删除是逻辑归档 `status=archived`，不物理删行。Vue 广场增查改删已接：卡片底栏编辑走 PATCH（新选图片才带 avatar），归档走自定义二次确认后 DELETE。对话页不改。
 
-## Current follow-up package
+## Current Dify status contract (landed 2026-09-22)
 
-- `docs/modify/抖音运营智能体Dify真实状态回传实施套餐.md` is the execution handoff for the next conversation; it is documentation only in this turn.
-- Planned contract: expose `dify_workflow_status` separately from the DSL-derived `job_status`; use `workflow_ok`, `delivery_ok`, `status`, `delivery`, and `message_details` without treating `written` as send proof.
-- Planned failure policy: outer workflow `succeeded` cannot override inner `failed/error/cancelled`; missing or unknown status is `unverified`; list error objects are not send records.
-- Scope remains backend Dify parsing only. Do not edit C's DSL, Vue, Streamlit, or redo phases 0–7.
+- `app/dify_client.py` parses outer `dify_workflow_status` separately from DSL `job_status`/`job_response`; `job_response.data.status` or root `status` wins, and missing/unknown job state is `unverified`.
+- `app/leads.py` returns `workflow_ok`, `delivery_ok`, `status`, `delivery`, `message_details`, `job_id`, `workflow_run_id`, and actual Dify errors. Only explicit per-item success is `sent`; list error objects never become records; `written` is local persistence only.
+- Outer workflow `succeeded` cannot override inner `failed/error/cancelled/timeout`; no job state or unknown state never reports success. The persisted workflow row maps user-visible `unverified` to existing database `failed` status.
+- Scope remains backend Dify parsing only. C's DSL, Vue, Streamlit, and phases 0–7 were not edited.

@@ -130,7 +130,14 @@ class FakeDifyClient:
             "name": "douyin-lead-discovery",
             "workflow_run_id": "wf-fake-1",
             "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "job_id": "job-fake-1",
+            "job_status": "succeeded",
             "outputs": {
+                "job_id": "job-fake-1",
+                "job_status": "succeeded",
+                "job_response": '{"data":{"status":"succeeded"}}',
                 "list_comment": [
                     {
                         "platform_comment_id": "c1",

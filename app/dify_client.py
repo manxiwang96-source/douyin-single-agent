@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -7,10 +8,51 @@ import httpx
 WORKFLOW_STATUSES = frozenset(
     {"running", "succeeded", "failed", "timeout", "auth_expired", "cancelled"}
 )
+JOB_STATUS_ALIASES = {
+    "success": "succeeded",
+    "succeeded": "succeeded",
+    "completed": "succeeded",
+    "failed": "failed",
+    "fail": "failed",
+    "error": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "timeout": "timeout",
+}
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def parse_json_value(value: Any) -> Any:
+    """Decode JSON returned as a DSL string while preserving non-JSON values."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return value
+
+
+def _first_error(value: Any) -> str | None:
+    payload = parse_json_value(value)
+    if isinstance(payload, dict):
+        nested = _as_dict(payload.get("data"))
+        error = payload.get("error") or payload.get("message") or nested.get("error") or nested.get("message")
+        if error:
+            if isinstance(error, (dict, list)):
+                return json.dumps(error, ensure_ascii=False)
+            return str(error)
+    return None
+
+
+def normalize_job_status(status: Any) -> str:
+    text = str(status or "").strip().lower()
+    return JOB_STATUS_ALIASES.get(text, "unverified")
 
 
 def stringify_dify_inputs(inputs: dict[str, Any] | None) -> dict[str, Any]:
@@ -62,40 +104,81 @@ def _normalize_status(status: Any, *, http_status: int | None = None) -> str:
         return "timeout"
     if http_status is not None and http_status >= 400:
         return "failed"
-    if not text:
-        return "succeeded"
-    return "failed"
+    return "unverified"
+
+
+def _extract_job_status(outputs: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    response = parse_json_value(outputs.get("job_response"))
+    response_dict = _as_dict(response)
+    response_data = _as_dict(response_dict.get("data"))
+    response_raw = response_data.get("status") or response_dict.get("status")
+    dsl_raw = outputs.get("job_status")
+    raw = response_raw or dsl_raw
+    status = normalize_job_status(raw)
+    error = _first_error(response)
+    return status, str(raw) if raw not in (None, "") else None, error
 
 
 def parse_dify_workflow_payload(payload: Any, *, http_status: int | None = None) -> dict[str, Any]:
+    """Parse outer Dify status separately from the DSL-derived delivery job status."""
     data = _as_dict(payload)
     inner = _as_dict(data.get("data"))
-    outputs = inner.get("outputs")
-    if outputs is None:
-        outputs = data.get("outputs")
-    status = _normalize_status(
+    outputs_value = inner.get("outputs")
+    if outputs_value is None:
+        outputs_value = data.get("outputs")
+    outputs = outputs_value if isinstance(outputs_value, dict) else _as_dict(parse_json_value(outputs_value))
+
+    outer_status = _normalize_status(
         inner.get("status") or data.get("status"),
         http_status=http_status,
     )
+    outer_error = inner.get("error") or data.get("error") or data.get("message")
+    if isinstance(outer_error, (dict, list)):
+        outer_error = json.dumps(outer_error, ensure_ascii=False)
     workflow_run_id = (
         data.get("workflow_run_id")
         or inner.get("id")
         or inner.get("workflow_run_id")
         or data.get("id")
     )
-    error = inner.get("error") or data.get("error") or data.get("message")
-    ok = status in {"succeeded"} and not error
-    if http_status is not None and http_status >= 400:
-        ok = False
-        if status not in {"auth_expired", "timeout"}:
-            status = "failed"
-        if not error:
-            error = f"http {http_status}"
+    job_status, job_status_raw, job_error = _extract_job_status(outputs)
+    workflow_ok = outer_status == "succeeded" and not outer_error and (http_status is None or http_status < 400)
+
+    if http_status == 401:
+        status = "auth_expired"
+    elif http_status == 408:
+        status = "timeout"
+    elif http_status is not None and http_status >= 400:
+        status = "failed"
+    elif not workflow_ok:
+        status = outer_status if outer_status != "unverified" else "failed"
+    elif job_status != "unverified":
+        status = job_status
+    else:
+        status = "unverified"
+
+    error = job_error if job_status in {"failed", "timeout"} and job_error else None
+    if not error and not workflow_ok:
+        error = str(outer_error) if outer_error else status
+    if not error and job_status == "unverified":
+        error = "job status unavailable"
+    if not error and job_status == "failed":
+        error = "job failed"
+    if not error and job_status == "timeout":
+        error = "job timeout"
+    if not error and job_status == "cancelled":
+        error = "job cancelled"
+    ok = workflow_ok and job_status == "succeeded" and not error
     return {
         "ok": ok,
+        "workflow_ok": workflow_ok,
+        "dify_workflow_status": outer_status,
+        "job_status": job_status,
+        "job_status_raw": job_status_raw,
+        "job_id": outputs.get("job_id"),
         "workflow_run_id": str(workflow_run_id) if workflow_run_id else None,
         "status": status,
-        "outputs": outputs if isinstance(outputs, dict) else _as_dict(outputs) or None,
+        "outputs": outputs or None,
         "error": str(error) if error else None,
     }
 
@@ -123,27 +206,27 @@ class DifyClient:
             self._required_defaults = {}
         return self._required_defaults
 
+    def _failure(self, name: str, status: str, error: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "name": name,
+            "workflow_ok": False,
+            "dify_workflow_status": status,
+            "job_status": "unverified",
+            "job_id": None,
+            "workflow_run_id": None,
+            "status": status,
+            "outputs": None,
+            "error": error,
+        }
+
     def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None) -> dict[str, Any]:
         payload_inputs = dict(inputs or {})
         payload_inputs["no_send"] = False
         if not self.settings.dify_live_enabled and self.http_client is None:
-            return {
-                "ok": False,
-                "name": name,
-                "workflow_run_id": None,
-                "status": "failed",
-                "outputs": None,
-                "error": "dify live disabled",
-            }
+            return self._failure(name, "failed", "dify live disabled")
         if not (self.settings.dify_api_key or "").strip():
-            return {
-                "ok": False,
-                "name": name,
-                "workflow_run_id": None,
-                "status": "auth_expired",
-                "outputs": None,
-                "error": "auth_expired",
-            }
+            return self._failure(name, "auth_expired", "auth_expired")
         url = f"{self.settings.dify_base_url}/workflows/run"
         headers = {
             "Authorization": f"Bearer {self.settings.dify_api_key}",
@@ -167,49 +250,22 @@ class DifyClient:
             }
             response = client.post(url, headers=headers, json=body, timeout=self.settings.dify_timeout_s)
         except httpx.TimeoutException as exc:
-            return {
-                "ok": False,
-                "name": name,
-                "workflow_run_id": None,
-                "status": "timeout",
-                "outputs": None,
-                "error": f"timeout: {exc}",
-            }
+            return self._failure(name, "timeout", f"timeout: {exc}")
         except httpx.HTTPError as exc:
-            return {
-                "ok": False,
-                "name": name,
-                "workflow_run_id": None,
-                "status": "failed",
-                "outputs": None,
-                "error": str(exc),
-            }
+            return self._failure(name, "failed", str(exc))
         finally:
             if owns_client and client is not None:
                 client.close()
         if response.status_code == 401:
-            return {
-                "ok": False,
-                "name": name,
-                "workflow_run_id": None,
-                "status": "auth_expired",
-                "outputs": None,
-                "error": "auth_expired",
-            }
+            return self._failure(name, "auth_expired", "auth_expired")
         try:
             parsed = parse_dify_workflow_payload(response.json(), http_status=response.status_code)
         except Exception:
-            parsed = {
-                "ok": False,
-                "workflow_run_id": None,
-                "status": "failed",
-                "outputs": None,
-                "error": f"invalid dify response ({response.status_code})",
-            }
+            parsed = self._failure(name, "failed", f"invalid dify response ({response.status_code})")
         if response.status_code >= 400 and parsed.get("status") not in {"auth_expired", "timeout"}:
             parsed["ok"] = False
+            parsed["workflow_ok"] = False
             parsed["status"] = "failed"
             parsed["error"] = parsed.get("error") or f"http {response.status_code}"
         parsed["name"] = name
         return parsed
-

@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { createAgentInstance } from "../api/agents";
+import { computed, onUnmounted, ref, watch } from "vue";
+import { createAgentInstance, patchAgentInstance } from "../api/agents";
+import { fetchAuthBlob } from "../api/threads";
 import { fileToDataUrl } from "../lib/avatar";
 import { apiErrorMessage } from "../lib/errors";
 import { INTRO_MAX, TITLE_MAX, validateIntro, validateTitle } from "../lib/title";
-import { DOUYIN_TEMPLATE as TEMPLATE } from "../lib/plaza";
+import { DOUYIN_TEMPLATE as TEMPLATE, type AgentCard } from "../lib/plaza";
 
-const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ close: []; created: [] }>();
+const props = defineProps<{
+  open: boolean;
+  card?: AgentCard | null;
+}>();
+const emit = defineEmits<{ close: []; created: []; saved: [] }>();
 
 const step = ref<"template" | "profile">("template");
 const title = ref("");
@@ -16,24 +20,65 @@ const avatar = ref("");
 const preview = ref("");
 const error = ref("");
 const loading = ref(false);
+let objectUrl = "";
 
-watch(
-  () => props.open,
-  (open) => {
-    if (open) {
-      step.value = "template";
-      title.value = "";
-      intro.value = "";
-      avatar.value = "";
-      preview.value = "";
-      error.value = "";
-      loading.value = false;
-    }
-  },
-);
-
+const isEdit = computed(() => Boolean(props.card));
 const titleCount = computed(() => title.value.length);
 const introCount = computed(() => intro.value.length);
+const dialogTitle = computed(() => (isEdit.value ? "编辑智能体" : "新建智能体"));
+const submitLabel = computed(() => {
+  if (loading.value) {
+    return isEdit.value ? "保存中..." : "创建中...";
+  }
+  return isEdit.value ? "保存" : "新建";
+});
+
+function revokePreview() {
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = "";
+  }
+}
+
+async function loadExistingPreview(url: string | null | undefined) {
+  revokePreview();
+  preview.value = "";
+  if (!url) {
+    return;
+  }
+  try {
+    const blob = await fetchAuthBlob(url);
+    objectUrl = URL.createObjectURL(blob);
+    preview.value = objectUrl;
+  } catch {
+    preview.value = "";
+  }
+}
+
+watch(
+  () => [props.open, props.card?.agent_instance_id] as const,
+  async ([open]) => {
+    if (!open) {
+      return;
+    }
+    error.value = "";
+    loading.value = false;
+    avatar.value = "";
+    if (props.card) {
+      step.value = "profile";
+      title.value = props.card.title;
+      intro.value = props.card.intro;
+      await loadExistingPreview(props.card.avatar_url);
+      return;
+    }
+    step.value = "template";
+    title.value = "";
+    intro.value = "";
+    revokePreview();
+    preview.value = "";
+  },
+  { immediate: true },
+);
 
 function chooseTemplate() {
   step.value = "profile";
@@ -46,6 +91,7 @@ async function onAvatar(event: Event) {
   if (!file) {
     return;
   }
+  revokePreview();
   avatar.value = await fileToDataUrl(file);
   preview.value = avatar.value;
 }
@@ -56,8 +102,20 @@ async function submit() {
     const nextTitle = validateTitle(title.value);
     const nextIntro = validateIntro(intro.value);
     loading.value = true;
-    await createAgentInstance(nextTitle, nextIntro, avatar.value || null);
-    emit("created");
+    if (props.card) {
+      const fields: { title: string; intro: string; avatar?: string } = {
+        title: nextTitle,
+        intro: nextIntro,
+      };
+      if (avatar.value) {
+        fields.avatar = avatar.value;
+      }
+      await patchAgentInstance(props.card.agent_instance_id, fields);
+      emit("saved");
+    } else {
+      await createAgentInstance(nextTitle, nextIntro, avatar.value || null);
+      emit("created");
+    }
     emit("close");
   } catch (err) {
     error.value = apiErrorMessage(err);
@@ -65,13 +123,15 @@ async function submit() {
     loading.value = false;
   }
 }
+
+onUnmounted(revokePreview);
 </script>
 
 <template>
   <div v-if="open" class="agent-modal-mask" @click.self="emit('close')">
     <div class="agent-modal" role="dialog" aria-modal="true">
       <div class="agent-modal-head">
-        <h2>新建智能体</h2>
+        <h2>{{ dialogTitle }}</h2>
         <button class="agent-icon-btn" type="button" aria-label="关闭" @click="emit('close')">×</button>
       </div>
 
@@ -108,7 +168,7 @@ async function submit() {
         <p v-if="error" class="agent-error">{{ error }}</p>
         <div class="agent-modal-actions">
           <button class="agent-btn agent-btn-ghost" type="button" @click="emit('close')">取消</button>
-          <button class="agent-btn" type="submit" :disabled="loading">{{ loading ? "创建中..." : "新建" }}</button>
+          <button class="agent-btn" type="submit" :disabled="loading">{{ submitLabel }}</button>
         </div>
       </form>
     </div>

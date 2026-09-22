@@ -17,6 +17,12 @@ export type AgentCard = {
   updated_at: string | null;
 };
 
+export type AgentPatchFields = {
+  title: string;
+  intro: string;
+  avatar?: string | null;
+};
+
 export function agentModeLabel(mode: string | null | undefined): string {
   if ((mode || "single") === "single") {
     return "单智能体模式";
@@ -58,6 +64,21 @@ export function createInstancePayload(
     template_code: DOUYIN_TEMPLATE_CODE,
     title,
     intro: intro || "",
+  };
+  if (avatar) {
+    payload.avatar = avatar;
+  }
+  return payload;
+}
+
+export function patchInstancePayload(
+  title: string,
+  intro: string,
+  avatar?: string | null,
+): Record<string, string> {
+  const payload: Record<string, string> = {
+    title,
+    intro,
   };
   if (avatar) {
     payload.avatar = avatar;

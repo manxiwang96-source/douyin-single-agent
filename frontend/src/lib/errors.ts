@@ -9,6 +9,7 @@ const DETAIL_MAP: Record<string, string> = {
   "thread is waiting for review": "当前需要审核后才能继续",
   "title must not be blank": "名称不能为空",
   "title must not contain whitespace": "名称不能包含空白字符",
+  "agent instance not found": "该智能体不存在或已归档",
 };
 
 export function apiErrorMessage(error: unknown, fallback = "请求失败，请重试"): string {

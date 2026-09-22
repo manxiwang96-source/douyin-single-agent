@@ -12,6 +12,8 @@ const register = vi.fn();
 const logout = vi.fn();
 const listAgentInstances = vi.fn();
 const createAgentInstance = vi.fn();
+const patchAgentInstance = vi.fn();
+const archiveAgentInstance = vi.fn();
 const openAgentInstance = vi.fn();
 const getAgentSidebar = vi.fn();
 const getThread = vi.fn();
@@ -28,6 +30,8 @@ vi.mock("../src/api/auth", () => ({
 vi.mock("../src/api/agents", () => ({
   listAgentInstances: (...args: unknown[]) => listAgentInstances(...args),
   createAgentInstance: (...args: unknown[]) => createAgentInstance(...args),
+  patchAgentInstance: (...args: unknown[]) => patchAgentInstance(...args),
+  archiveAgentInstance: (...args: unknown[]) => archiveAgentInstance(...args),
   openAgentInstance: (...args: unknown[]) => openAgentInstance(...args),
   getAgentSidebar: (...args: unknown[]) => getAgentSidebar(...args),
 }));
@@ -120,7 +124,7 @@ describe("login to chat loop", () => {
     await router.push("/agents");
     await flushPromises();
     expect(wrapper.text()).toContain("我的智能体");
-    await wrapper.get("button.agent-btn").trigger("click");
+    await wrapper.get(".agent-create-btn").trigger("click");
     expect(wrapper.text()).toContain("抖音运营助手");
     await wrapper.get(".agent-template").trigger("click");
     listAgentInstances.mockResolvedValue({
@@ -142,11 +146,53 @@ describe("login to chat loop", () => {
     expect(createAgentInstance).toHaveBeenCalledWith("助手A", "日常运营", null);
     expect(wrapper.text()).toContain("助手A");
     expect(wrapper.text()).toContain("单智能体模式");
-    await wrapper.get(".agent-card").trigger("click");
+    await wrapper.get(".agent-card-main").trigger("click");
     await flushPromises();
     expect(openAgentInstance).toHaveBeenCalledWith("id-1");
     expect(wrapper.text()).toContain("抖音线索发现与触达");
     expect(wrapper.text()).toContain("返回广场");
     expect(wrapper.get("textarea").attributes("disabled")).toBeUndefined();
+  });
+
+  it("edits and archives a card without opening chat", async () => {
+    listAgentInstances.mockResolvedValue({
+      items: [
+        {
+          agent_instance_id: "id-1",
+          title: "助手A",
+          intro: "日常运营",
+          agent_mode: "single",
+          created_at: "2026-01-01T00:00:00",
+          updated_at: "2026-01-02T00:00:00",
+        },
+      ],
+    });
+    patchAgentInstance.mockResolvedValue({ agent_instance_id: "id-1", title: "助手B" });
+    archiveAgentInstance.mockResolvedValue({ ok: true, agent_instance_id: "id-1", status: "archived" });
+    localStorage.setItem("token", "tok");
+    const { wrapper, router } = await mountApp();
+    await router.push("/agents");
+    await flushPromises();
+    expect(wrapper.text()).toContain("助手A");
+    await wrapper.get(".agent-card-edit").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("编辑智能体");
+    expect(wrapper.find(".agent-template").exists()).toBe(false);
+    await wrapper.get(".agent-modal input").setValue("助手B");
+    await wrapper.get(".agent-modal form").trigger("submit");
+    await flushPromises();
+    expect(patchAgentInstance).toHaveBeenCalledWith("id-1", { title: "助手B", intro: "日常运营" });
+    expect(Object.keys(patchAgentInstance.mock.calls[0][1]).sort()).toEqual(["intro", "title"]);
+    expect(openAgentInstance).not.toHaveBeenCalled();
+    await wrapper.get(".agent-card-archive").trigger("click");
+    await wrapper.get(".agent-archive-cancel").trigger("click");
+    expect(archiveAgentInstance).not.toHaveBeenCalled();
+    listAgentInstances.mockResolvedValue({ items: [] });
+    await wrapper.get(".agent-card-archive").trigger("click");
+    await wrapper.get(".agent-archive-confirm").trigger("click");
+    await flushPromises();
+    expect(archiveAgentInstance).toHaveBeenCalledWith("id-1");
+    expect(openAgentInstance).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("助手A");
   });
 });

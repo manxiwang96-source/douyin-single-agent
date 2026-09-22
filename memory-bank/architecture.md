@@ -74,6 +74,9 @@ If local `DOUYIN_HTTP_BASE_URL` is empty, send C's published start-node default 
 In-progress runs in a 10-minute window are reused. Each real call writes `workflow_runs`; list_comment/list_message/snapshot writeback is best-effort.
 v1 does not review outbound comments/DMs.
 
+### Planned Dify result contract (not implemented in this turn)
+The handoff in `docs/modify/抖音运营智能体Dify真实状态回传实施套餐.md` defines the next backend change: retain outer `dify_workflow_status` separately from DSL-derived `job_status`/`job_response`; normalize delivery to `sent`, `failed`, `cancelled`, or `unverified`; expose `workflow_ok`, `delivery_ok`, `status`, `delivery`, and `message_details`; never infer successful delivery from `written` or a list error object. This is a planned contract only until the next implementation turn lands and tests it.
+
 ## Runtime processes
 1. uvicorn app.main:create_app --factory
 2. streamlit run ui/streamlit_app.py (transitional client)

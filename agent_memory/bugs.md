@@ -1,6 +1,9 @@
 # Bugs and Risks
 
 ## Open
+- Dify 真实状态回传套餐已整理但尚未实现；当前业务代码仍可能只依据外层 workflow 结果，不能把本次文档交付视为修复完成。
+- 后续实现必须确认 `job_response` 的 `data.status`/顶层 `status`、`list_message`/`list_comment` 原始响应结构；缺失或未知状态必须保持 `unverified`，不能默认 `sent`。
+- DSL 的列表节点未明确绑定本次 `job_id`/`run_id` 时，历史列表记录混入本次结果的风险仍存在；本次只记录风险，不修改 C 的 DSL。
 - Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。
 - 现网若未重启 uvicorn，5173 Origin 直连仍无 CORS 头；npm run dev 走 /v1 proxy 可联调，不能代替重启后的 CORS。
 - 本地 .env 的 DOUYIN_HTTP_BASE_URL / DOUYIN_HTTP_API_TOKEN 仍为空。工人对空 base_url 使用已发布默认 http://192.168.1.33:8765；空 token 不写入 workflow_runs.inputs，live HTTP 只从 GET /parameters 补缺省。不要把 token 写入 git / 文档 / agent_memory。

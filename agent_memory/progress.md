@@ -1,13 +1,13 @@
 # Progress
 
 ## Current task
-智能体实例逻辑删除 HTTP 已落地。
+广场改删套餐已写入文档，待另开窗口实现 Vue。
 
 ## Status
-- `DELETE /v1/agent-instances/{id}` 走现有 `archive_agent_instance`，HTTP 层 `_owned_instance` 鉴权。
-- 成功 200：`ok=true`、`status=archived`；未登录 401；不存在/他人/已归档/非法 UUID 404。
-- 归档后列表不再返回该卡；open / sidebar / patch / 二次 DELETE 404；同名可再建。
-- 未改仓库归档语义、未做物理删除/7 天清扫、未加 GET /{id}、未加服务端 keyword、未映射 Vue。
+- 工人阶段 0–7、Vue 增/查闭环、删除 HTTP 已完成。
+- 前端仍只有增+查：`CreateAgentModal`、列表、搜索、点卡 `open`。
+- `PATCH` / `DELETE` HTTP 已有，Vue 尚未映射编辑与归档。
+- 实施手册：`docs/modify/抖音运营智能体广场编辑与归档实施套餐.md`。
 
 ## Next
-前端暂不映射删除/修改。不要重做阶段 0–7。
+另开窗口按该套餐实现广场编辑与归档；不要重做阶段 0–7，不要改 FastAPI / Dify / Streamlit / C 的工作流。

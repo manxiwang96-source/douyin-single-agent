@@ -38,4 +38,4 @@ Per-instance vector retrieve inside chatbot; seed douyin_ops demo; optional sear
 Deployment B: server Postgres is source of truth. Do not ALTER LangGraph official tables.
 
 ## Plaza HTTP
-查询 `GET /v1/agent-instances`、修改 `PATCH /v1/agent-instances/{id}`、删除 `DELETE /v1/agent-instances/{id}` 已有。删除是逻辑归档 `status=archived`，不物理删行。前端暂不映射改/删。
+查询 `GET /v1/agent-instances`、修改 `PATCH /v1/agent-instances/{id}`、删除 `DELETE /v1/agent-instances/{id}` 已有。删除是逻辑归档 `status=archived`，不物理删行。Vue 增查已有；改删套餐见 docs/modify/抖音运营智能体广场编辑与归档实施套餐.md，待另开窗口实现。

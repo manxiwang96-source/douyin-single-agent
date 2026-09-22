@@ -6,6 +6,7 @@
 ## Locked design
 Canonical product doc: docs/modify/抖音运营智能体修改设计方案（1）.md.
 Phased execution for a new conversation: stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
+Vue client playbook for a later conversation: docs/modify/抖音运营智能体Vue前端实施套餐.md.
 Do not treat deleted stage1/ as source. Do not edit C's Dify.
 
 ## Phase 0-7 landed
@@ -25,8 +26,9 @@ DOUYIN_HTTP_* may be empty because C's workflow has defaults; `/workflows/run` d
 Reserve agent_instance_workflows. Catalog stays code/config. Do not compile a graph per instance.
 
 ## Client
-Streamlit is the v1 plaza stand-in. FastAPI Bearer JSON is the contract for the later frontend.
-Real login_name + PBKDF2 password hash. Default-disable morning brief / hydrate scheduler; keep send_email / weather / memory tools in chat.
+Streamlit is the v1 plaza stand-in. FastAPI Bearer JSON is the contract.
+Vue frontend is not started. Implement it only from docs/modify/抖音运营智能体Vue前端实施套餐.md in a new chat, phase by phase. Do not create `frontend/` until that chat's phase 1.
+Default CORS still only allows Streamlit 8501; Vue 5173 is playbook phase 0.
 
 ## Knowledge
 Per-instance vector retrieve inside chatbot; seed douyin_ops demo; optional search_kb as 补检索. Metadata table agent_knowledge_documents; chunks in Store namespace (user_id, agent_instance_id, "kb"). Production PostgresStore embedding index (pgvector).

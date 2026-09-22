@@ -2,7 +2,7 @@
 
 ## Open
 - Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。
-- 默认 CORS 仍只有 Streamlit `8501`。Vue `http://localhost:5173` / `http://127.0.0.1:5173` 尚未放行，留给 Vue 套餐阶段 0。
+- 默认 CORS 仍只有 Streamlit `8501`。Vue `http://localhost:5173` / `http://127.0.0.1:5173` 尚未放行，留给下一窗口一次交付的第一步，做完立刻继续脚手架，不要停在 CORS。
 - 本地 `.env` 的 `DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN` 仍为空。工人对空 `base_url` 使用已发布默认 `http://192.168.1.33:8765`；空 token 不写入 `workflow_runs.inputs`，live HTTP 只从 `GET /parameters` 补缺省。不要把 token 写入 git / 文档 / agent_memory。
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
 - Morning-brief JOBS_NAMESPACE ("assistant", "jobs") remains global; conversation profile/KB/media are isolated as of phase 3.

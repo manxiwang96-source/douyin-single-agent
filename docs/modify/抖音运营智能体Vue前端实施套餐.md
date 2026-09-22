@@ -8,13 +8,15 @@
 
 ## 0. 新对话必读
 
-把下面这段贴给新对话：
+把下面这段贴给新对话（目标模式，一次完整交付）：
 
 ```text
 读取 docs/modify/抖音运营智能体Vue前端实施套餐.md。
 产品决策以 docs/modify/抖音运营智能体修改设计方案（1）.md 为准。
 工人阶段 0–7 已完成，不要重做 Dify / 业务表 / Streamlit，不要改 C 的工作流。
-先看 agent_memory/progress.md，只实现本文当前未完成的最小阶段。
+本窗口一次完整交付 Vue 前端闭环：CORS、脚手架、登录、广场两步弹窗、对话+只读侧边栏，接到现有 FastAPI 能跑通。
+不要停在 CORS 或脚手架；未跑通 登录→新建弹窗→卡片→对话 不算交付。
+第 8 节只是本窗口内部施工顺序，不是要开 6 个对话。
 使用仓库 venv 跑后端测试；前端用 frontend/ 下的 npm 脚本。
 改完补测试并中文 commit。不要把密钥写入 git / 文档 / agent_memory。
 ```
@@ -22,10 +24,10 @@
 开工顺序：
 
 1. 读本文、修改设计方案第 8 节（广场/侧边栏）、`memory-bank/architecture.md`、`agent_memory/{context,progress,bugs}.md`。
-2. 只实现 `progress.md` 标明的当前阶段；没有标明则从本文阶段 0 开始。
-3. 每阶段补测试，相关测试全绿后再中文 commit。
-4. 阶段完成后更新 `agent_memory/progress.md`；全部页面跑通后再更新 `memory-bank/architecture.md`。
-5. 不要连做下一阶段，除非用户明确说继续。
+2. 按第 8 节清单从 CORS 做到对话闭环，本窗口一次做完。
+3. 可以按清单分 commit，但不要中途停工等用户说继续。
+4. 整条闭环可跑后再更新 `memory-bank/architecture.md` 和 `agent_memory/progress.md`。
+5. 不要重做工人，不要删 Streamlit。
 
 本套餐实现前，仓库里还没有 `frontend/`。Streamlit 仍是过渡客户端，不要删。
 
@@ -91,7 +93,7 @@
 
 v1 界面不要做改名 PATCH、任务取消页、发布/未发布。
 
-默认 CORS 只放行 Streamlit `8501`。Vue 本地 `5173` 必须补源，见阶段 0。现网 `CORSMiddleware` 为 `allow_credentials=True`，不能改成 `*`。
+默认 CORS 只放行 Streamlit `8501`。Vue 本地 `5173` 必须补源，这是一次交付里的第一步。现网 `CORSMiddleware` 为 `allow_credentials=True`，不能改成 `*`。
 
 对话超时：Streamlit 客户端是 180s；Dify 阻塞上限是 `DIFY_TIMEOUT_S=300`。Vue Axios 超时用 **180000** 对齐现客户端；若手动真发被前端掐断，再升到 300000。全程展示 loading。无 SSE。
 
@@ -239,7 +241,7 @@ frontend/
 
 `vite.config.ts`：`server.port=5173`，`server.proxy['/v1']` 指向后端。前端默认 `VITE_API_BASE=""` 走同源 proxy；直连后端时才用绝对 URL。
 
-启动（实现完成后写进 README，本阶段先按此验证）：
+启动（实现完成后写进 README，按此验证）：
 
 ```powershell
 .\venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
@@ -247,9 +249,9 @@ cd frontend
 npm run dev
 ```
 
-## 8. 分阶段实施
+## 8. 一次交付的施工顺序
 
-一次只做当前阶段。
+一次完整交付。下面 阶段 0–5 只是本窗口内部施工顺序，不是要你开 6 个对话。按序做完；未跑通登录→新建→对话不算成功。
 
 ### 阶段 0 — CORS 放行 Vite
 
@@ -261,7 +263,7 @@ npm run dev
 - `.env.example` 如需暴露该变量则同步，不要改用户 `.env` 里的密钥。
 - `tests/test_config.py` 断言默认列表含 5173 与 8501。
 
-不做：前端脚手架以外的页面。
+CORS 是清单第一步，做完立刻继续脚手架，不要在这一步停下来等用户。
 
 提交中文：`放行 Vue 开发服务器跨域来源`。
 
@@ -337,4 +339,4 @@ npm run dev
 - 对话无流式，长耗时 Dify 只靠超时和 loading。
 - 取消任务页 v1 不做；生图生视频 HITL 要保留。
 - 飞书 bot 与本工人可能双发，手动真发前与 C 错开。
-- 现网默认 CORS 还只有 8501；没做阶段 0 之前，浏览器直连 8000 会被拦。同源 Vite proxy 可暂时绕过，但阶段 0 仍要做。
+- 现网默认 CORS 还只有 8501；交付时必须补 5173。同源 Vite proxy 可辅助联调，但不能代替 CORS 修改。

@@ -27,8 +27,8 @@ Reserve agent_instance_workflows. Catalog stays code/config. Do not compile a gr
 
 ## Client
 Streamlit is the v1 plaza stand-in. FastAPI Bearer JSON is the contract.
-Vue frontend is not started. Implement it only from docs/modify/抖音运营智能体Vue前端实施套餐.md in a new chat, phase by phase. Do not create `frontend/` until that chat's phase 1.
-Default CORS still only allows Streamlit 8501; Vue 5173 is playbook phase 0.
+Vue frontend is not started. The next agent-mode chat implements the full Vue loop from docs/modify/抖音运营智能体Vue前端实施套餐.md in one window: CORS, scaffold, login, plaza two-step modal, chat + read-only sidebar. Do not create `frontend/` in the playbook-only chat.
+Default CORS still only allows Streamlit 8501; Vue 5173 is the first step of that one delivery, not a stop gate.
 
 ## Knowledge
 Per-instance vector retrieve inside chatbot; seed douyin_ops demo; optional search_kb as 补检索. Metadata table agent_knowledge_documents; chunks in Store namespace (user_id, agent_instance_id, "kb"). Production PostgresStore embedding index (pgvector).

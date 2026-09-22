@@ -215,6 +215,15 @@ onUnmounted(() => {
             controls
           />
         </div>
+        <div
+          v-if="sending"
+          class="agent-bubble agent-bubble-pending"
+          role="status"
+          aria-live="polite"
+        >
+          <span>正在回复</span>
+          <span class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
       </div>
       <form class="agent-composer" @submit.prevent="send">
         <textarea

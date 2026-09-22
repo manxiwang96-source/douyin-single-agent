@@ -6,6 +6,8 @@ import ChatView from "../src/views/ChatView.vue";
 const openAgentInstance = vi.fn();
 const getAgentSidebar = vi.fn();
 const getThread = vi.fn();
+const postMessage = vi.fn();
+const resumeThread = vi.fn();
 const fetchAuthBlob = vi.fn();
 
 vi.mock("../src/api/agents", () => ({
@@ -15,8 +17,8 @@ vi.mock("../src/api/agents", () => ({
 
 vi.mock("../src/api/threads", () => ({
   getThread: (...args: unknown[]) => getThread(...args),
-  postMessage: vi.fn(),
-  resumeThread: vi.fn(),
+  postMessage: (...args: unknown[]) => postMessage(...args),
+  resumeThread: (...args: unknown[]) => resumeThread(...args),
   fetchAuthBlob: (...args: unknown[]) => fetchAuthBlob(...args),
 }));
 
@@ -48,6 +50,8 @@ describe("ChatView HITL", () => {
       tools: [{ name: "discover_douyin_leads", display_name: "抖音线索发现" }],
     });
     fetchAuthBlob.mockRejectedValue(new Error("no avatar"));
+    postMessage.mockReset();
+    resumeThread.mockReset();
   });
 
   it("disables composer while thread is interrupted", async () => {
@@ -64,7 +68,38 @@ describe("ChatView HITL", () => {
     const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.text()).toContain("Approve");
+    expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
     expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
     expect(wrapper.get(".agent-composer button").attributes("disabled")).toBeDefined();
+  });
+
+  it("shows a pending assistant bubble while waiting for a reply", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    let resolvePost: (value: unknown) => void = () => undefined;
+    postMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        }),
+    );
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
+    await wrapper.get(".agent-composer textarea").setValue("你好");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.text()).toContain("你好");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    resolvePost({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "你好" },
+        { role: "assistant", content: "您好，我是抖音运营助手" },
+      ],
+    });
+    await flushPromises();
+    expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
+    expect(wrapper.text()).toContain("您好，我是抖音运营助手");
   });
 });

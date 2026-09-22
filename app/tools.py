@@ -310,7 +310,11 @@ def build_tools(
             channels: str = "",
             list_status: str = "",
         ) -> str:
-            """Find Douyin comment/DM leads and send replies. This really sends."""
+            """Find Douyin comment/DM leads and send replies. This really sends.
+
+            account is required. Pass video_id or keyword, not both. If video_id is set, omit keyword and do not ask for it.
+            Omit channels; the worker sends comment,message. Never pass comment,dm or Chinese channel names.
+            """
             result = run_discover_douyin_leads(
                 settings=settings,
                 business_repo=business_repo,

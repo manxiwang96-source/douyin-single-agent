@@ -7,7 +7,7 @@ from datetime import timedelta
 from langchain_core.messages import HumanMessage
 
 from app.dify_client import DifyClient
-from app.leads import build_dify_inputs, run_discover_douyin_leads
+from app.leads import build_dify_inputs, normalize_lead_channels, run_discover_douyin_leads
 from app.repository import DEFAULT_WORKFLOW_CODE, utcnow
 from tests.fakes import FakeDifyClient, ai_text, ai_tool
 from tests.graph_helpers import graph_config
@@ -64,6 +64,41 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     assert with_http["base_url"] == "http://c.example.test"
     assert with_http["api_token"] == "tok"
     assert with_http["video_id"] == "v9"
+
+
+def test_normalize_lead_channels_maps_aliases_and_rejects_invalid():
+    assert normalize_lead_channels("") == "comment,message"
+    assert normalize_lead_channels("comment,message") == "comment,message"
+    assert normalize_lead_channels("comment") == "comment"
+    assert normalize_lead_channels("message") == "message"
+    assert normalize_lead_channels("comment,dm") == "comment,message"
+    assert normalize_lead_channels("评论、私信") == "comment,message"
+    assert normalize_lead_channels("评论，私信") == "comment,message"
+    assert normalize_lead_channels("dm") == "message"
+    assert normalize_lead_channels("message,comment") == "comment,message"
+    assert normalize_lead_channels("foo,bar") == "comment,message"
+
+
+def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_channels(settings):
+    inputs = build_dify_inputs(
+        settings,
+        account="wmq",
+        keyword="敏感肌",
+        video_id="7674838941266087168",
+        channels="comment,dm",
+    )
+    assert inputs["account"] == "wmq"
+    assert inputs["video_id"] == "7674838941266087168"
+    assert "keyword" not in inputs
+    assert inputs["channels"] == "comment,message"
+    chinese = build_dify_inputs(
+        settings,
+        account="wmq",
+        video_id="7674838941266087168",
+        channels="评论、私信",
+    )
+    assert chinese["channels"] == "comment,message"
+    assert "keyword" not in chinese
 
 
 def test_missing_account_or_keyword_does_not_call_dify(runtime, settings):
@@ -252,6 +287,38 @@ def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
     assert fresh["ok"] is True
     assert "reused" not in fresh
     assert second.calls
+
+
+def test_graph_tool_sanitizes_channels_and_omits_keyword_when_video_id_present(runtime, llm, dify_client):
+    repo = runtime.business_repo
+    user, instance = _bound_owner(repo, "graph-video")
+    llm.responses = [
+        ai_tool(
+            "discover_douyin_leads",
+            {
+                "account": "wmq",
+                "video_id": "7674838941266087168",
+                "keyword": "不要用",
+                "channels": "comment,dm",
+            },
+        ),
+        ai_text("已按视频开始评论和私信线索发现"),
+    ]
+    config = graph_config(
+        "lead-graph-video",
+        user_id=str(user.user_id),
+        agent_instance_id=str(instance.agent_instance_id),
+    )
+    result = runtime.graph.invoke({"messages": [HumanMessage(content="用账号和视频做线索发现")]}, config)
+    assert dify_client.calls
+    inputs = dify_client.calls[0]["inputs"]
+    assert inputs["account"] == "wmq"
+    assert inputs["video_id"] == "7674838941266087168"
+    assert "keyword" not in inputs
+    assert inputs["channels"] == "comment,message"
+    assert inputs["no_send"] is False
+    payload = json.loads(result["messages"][-2].content)
+    assert payload["ok"] is True
 
 
 def test_graph_tool_uses_fake_and_keeps_tutorial_nodes(runtime, llm, dify_client):

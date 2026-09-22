@@ -4,6 +4,7 @@
 阶段 7（真实 Dify 交付）已完成。不要连做下一阶段。
 
 ## Status
+已收紧 prompt：有 video_id 不再要 keyword，先警告再立刻调工具。`channels` 归一为 `comment`/`message`/`comment,message`，`comment,dm` 与中文「评论、私信」不再原样下发。有 video_id 时省略 keyword。
 工人已真调已发布的 `douyin-lead-discovery`：`POST {DIFY_BASE_URL}/workflows/run`，Bearer `DIFY_API_KEY`。
 `no_send=false` 由 `build_dify_inputs` 和 `DifyClient.run` 写死；HTTP 体把 bool 转成 select 字符串 `true`/`false`。
 模型未填时补 C 开始节点默认：`platform=douyin`、`limit=20`、`channels=comment,message`、`assess=true`。

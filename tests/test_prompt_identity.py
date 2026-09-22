@@ -16,6 +16,10 @@ def test_system_prompt_is_douyin_operations_assistant():
     assert "小红书【标题】【正文】【标签】模板" in SYSTEM_PROMPT
     assert "【标题】" not in SYSTEM_PROMPT.replace("小红书【标题】【正文】【标签】模板", "")
     assert "不是小红书运营助手" not in SYSTEM_PROMPT
+    assert "已有 video_id 时不要再要 keyword" in SYSTEM_PROMPT
+    assert "comment,message" in SYSTEM_PROMPT
+    assert "comment,dm" in SYSTEM_PROMPT
+    assert "然后立刻调用 discover_douyin_leads" in SYSTEM_PROMPT
 
 
 def test_fastapi_title_is_douyin_operations_assistant(runtime):

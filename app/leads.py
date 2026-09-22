@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -21,6 +22,44 @@ DEFAULT_LEAD_PLATFORM = "douyin"
 DEFAULT_LEAD_LIMIT = 20
 DEFAULT_LEAD_CHANNELS = "comment,message"
 DEFAULT_DOUYIN_HTTP_BASE_URL = "http://192.168.1.33:8765"
+CHANNEL_COMMENT = "comment"
+CHANNEL_MESSAGE = "message"
+ALLOWED_LEAD_CHANNEL_VALUES = frozenset(
+    {CHANNEL_COMMENT, CHANNEL_MESSAGE, DEFAULT_LEAD_CHANNELS}
+)
+_CHANNEL_TOKEN_ALIASES = {
+    "comment": CHANNEL_COMMENT,
+    "comments": CHANNEL_COMMENT,
+    "评论": CHANNEL_COMMENT,
+    "message": CHANNEL_MESSAGE,
+    "messages": CHANNEL_MESSAGE,
+    "dm": CHANNEL_MESSAGE,
+    "dms": CHANNEL_MESSAGE,
+    "私信": CHANNEL_MESSAGE,
+}
+
+
+def normalize_lead_channels(channels: str = "") -> str:
+    raw = str(channels or "").strip()
+    if not raw:
+        return DEFAULT_LEAD_CHANNELS
+    compact = raw.replace(" ", "")
+    if compact in ALLOWED_LEAD_CHANNEL_VALUES:
+        return compact
+    if compact == f"{CHANNEL_MESSAGE},{CHANNEL_COMMENT}":
+        return DEFAULT_LEAD_CHANNELS
+    found: list[str] = []
+    for piece in re.split(r"[,，、/;；]+", raw):
+        token = piece.strip()
+        mapped = _CHANNEL_TOKEN_ALIASES.get(token.lower()) or _CHANNEL_TOKEN_ALIASES.get(token)
+        if mapped and mapped not in found:
+            found.append(mapped)
+    if CHANNEL_COMMENT in found and CHANNEL_MESSAGE in found:
+        return DEFAULT_LEAD_CHANNELS
+    if len(found) == 1:
+        return found[0]
+    return DEFAULT_LEAD_CHANNELS
+
 
 
 def json_tool_result(payload: dict[str, Any]) -> str:
@@ -46,14 +85,13 @@ def build_dify_inputs(
         "limit": DEFAULT_LEAD_LIMIT,
         "channels": DEFAULT_LEAD_CHANNELS,
     }
-    if keyword:
-        inputs["keyword"] = keyword
     if video_id:
         inputs["video_id"] = video_id
+    elif keyword:
+        inputs["keyword"] = keyword
     if limit is not None and str(limit) != "":
         inputs["limit"] = limit
-    if channels:
-        inputs["channels"] = channels
+    inputs["channels"] = normalize_lead_channels(channels)
     if list_status:
         inputs["list_status"] = list_status
     base_url = (getattr(settings, "douyin_http_base_url", "") or "").strip()

@@ -1,8 +1,6 @@
 # Bugs and Risks
 
 ## Open
-- 2026-09-22 手动联调：有 video_id 时模型仍先要 keyword，第一轮没调工具。
-- 2026-09-22 手动联调：后续 3 次已调 `discover_douyin_leads`，Dify run 均 failed，`error=Request failed with status code 400`。account/video_id/`no_send=false`/无 keyword 正确，但模型把 `channels` 改成「评论、私信」或 `comment,dm`，覆盖默认 `comment,message`；C 的 `POST /v1/commands/run` 返回 400。`engage_*` 未写回。不要把 token 写入 git / 文档 / agent_memory。
 - Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。
 - 本地 `.env` 的 `DOUYIN_HTTP_BASE_URL` / `DOUYIN_HTTP_API_TOKEN` 仍为空。工人对空 `base_url` 使用已发布默认 `http://192.168.1.33:8765`；空 token 不写入 `workflow_runs.inputs`，live HTTP 只从 `GET /parameters` 补缺省。不要把 token 写入 git / 文档 / agent_memory。
 - Cancelling a worker job may not stop the Dify poll loop or C's async job. Local status can be cancelled while send already happened.
@@ -16,6 +14,7 @@
 - difyctl auth login remains blocked on host OpenAPI 404. v1 no longer uses CLI OAuth; keep App API key and dfoa_ tokens unmixed.
 
 ## Closed
+- 2026-09-22 手动联调：有 video_id 仍要 keyword，以及模型把 `channels` 改成 `comment,dm`/中文导致 C 的 `/v1/commands/run` 400。已收紧 prompt，并在 `normalize_lead_channels` 把非法 channels 归一成 `comment,message`；有 video_id 时不再写入 keyword。
 - 阶段 7 live smoke passed：`RUN_LIVE_DOUYIN=1`、account=wmq、给定 video_id、`no_send=false`，默认 pytest 仍全 mock。
 - 阶段 6 Streamlit 过渡客户端 landed：登录/注册、广场卡片、/open 对话、只读侧边栏；token 在 session_state 并带 Bearer；旧未登录 POST /v1/threads 入口已去掉。
 - 阶段 5 list_jobs/cancel_job + HTTP disable/cancel landed；disable 后不再生成新 run；取消是状态，已 sent 不撤回。

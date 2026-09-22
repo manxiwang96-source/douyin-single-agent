@@ -68,6 +68,9 @@ describe("ChatView HITL", () => {
     const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.text()).toContain("Approve");
+    expect(wrapper.find(".agent-chat-main > .agent-hitl").exists()).toBe(false);
+    expect(wrapper.find(".agent-messages .agent-msg-row.is-hitl .agent-hitl").exists()).toBe(true);
+    expect(wrapper.find(".agent-messages .agent-msg-row.is-hitl .agent-msg-avatar").exists()).toBe(true);
     expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
     expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
     expect(wrapper.get(".agent-composer button").attributes("disabled")).toBeDefined();
@@ -90,6 +93,10 @@ describe("ChatView HITL", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("你好");
     expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    const userRow = wrapper.findAll(".agent-msg-row").find((row) => row.classes().includes("is-user"));
+    expect(userRow?.find(".agent-msg-avatar").exists()).toBe(false);
+    expect(wrapper.find(".agent-msg-row.is-pending .agent-msg-avatar").exists()).toBe(true);
+    expect(wrapper.find(".agent-msg-row.is-hitl").exists()).toBe(false);
     resolvePost({
       status: "idle",
       interrupt: null,
@@ -101,5 +108,28 @@ describe("ChatView HITL", () => {
     await flushPromises();
     expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
     expect(wrapper.text()).toContain("您好，我是抖音运营助手");
+    const assistantRow = wrapper.findAll(".agent-msg-row").find((row) => !row.classes().includes("is-user"));
+    expect(assistantRow?.find(".agent-msg-avatar").exists()).toBe(true);
+  });
+
+  it("shows agent avatar on assistant rows only", async () => {
+    getThread.mockResolvedValue({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "你好" },
+        { role: "assistant", content: "您好，我是抖音运营助手" },
+      ],
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const rows = wrapper.findAll(".agent-messages .agent-msg-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].classes()).toContain("is-user");
+    expect(rows[0].find(".agent-msg-avatar").exists()).toBe(false);
+    expect(rows[0].text()).toContain("你好");
+    expect(rows[1].classes()).not.toContain("is-user");
+    expect(rows[1].find(".agent-msg-avatar").exists()).toBe(true);
+    expect(rows[1].text()).toContain("您好，我是抖音运营助手");
   });
 });

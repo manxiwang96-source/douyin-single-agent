@@ -188,41 +188,63 @@ onUnmounted(() => {
         <button class="agent-btn agent-btn-ghost" type="button" @click="logout">退出登录</button>
       </header>
       <p v-if="error" class="agent-error" style="padding: 0 20px;">{{ error }}</p>
-      <HitlCard
-        :visible="hitl.visible"
-        :tool="hitl.tool"
-        :prompt="hitl.prompt"
-        :params="hitl.params"
-        :disabled="sending"
-        @approve="onApprove"
-        @skip="onSkip"
-      />
       <div class="agent-messages">
-        <div v-for="(item, index) in messages" :key="index" class="agent-bubble" :class="{ 'is-user': item.role === 'user' }">
-          <div v-if="item.content">{{ item.content }}</div>
-          <img
-            v-for="preview in item.previews.filter((row) => row.widget === 'image')"
-            :key="preview.url"
-            class="agent-media"
-            :src="preview.url"
-            alt=""
-          />
-          <video
-            v-for="preview in item.previews.filter((row) => row.widget === 'video')"
-            :key="preview.url"
-            class="agent-media"
-            :src="preview.url"
-            controls
+        <div
+          v-for="(item, index) in messages"
+          :key="index"
+          class="agent-msg-row"
+          :class="{ 'is-user': item.role === 'user' }"
+        >
+          <div v-if="item.role !== 'user'" class="agent-msg-avatar" aria-hidden="true">
+            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+          </div>
+          <div class="agent-bubble" :class="{ 'is-user': item.role === 'user' }">
+            <div v-if="item.content">{{ item.content }}</div>
+            <img
+              v-for="preview in item.previews.filter((row) => row.widget === 'image')"
+              :key="preview.url"
+              class="agent-media"
+              :src="preview.url"
+              alt=""
+            />
+            <video
+              v-for="preview in item.previews.filter((row) => row.widget === 'video')"
+              :key="preview.url"
+              class="agent-media"
+              :src="preview.url"
+              controls
+            />
+          </div>
+        </div>
+        <div v-if="hitl.visible && !sending" class="agent-msg-row is-hitl">
+          <div class="agent-msg-avatar" aria-hidden="true">
+            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+          </div>
+          <HitlCard
+            :visible="true"
+            :tool="hitl.tool"
+            :prompt="hitl.prompt"
+            :params="hitl.params"
+            :disabled="sending"
+            @approve="onApprove"
+            @skip="onSkip"
           />
         </div>
-        <div
-          v-if="sending"
-          class="agent-bubble agent-bubble-pending"
-          role="status"
-          aria-live="polite"
-        >
-          <span>正在回复</span>
-          <span class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <div v-if="sending" class="agent-msg-row is-pending">
+          <div class="agent-msg-avatar" aria-hidden="true">
+            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+          </div>
+          <div
+            class="agent-bubble agent-bubble-pending"
+            role="status"
+            aria-live="polite"
+          >
+            <span>正在回复</span>
+            <span class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
         </div>
       </div>
       <form class="agent-composer" @submit.prevent="send">

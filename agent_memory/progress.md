@@ -6,9 +6,10 @@
 ## Status
 已完成，不要重做。
 - 对话发送后 `sending` 时显示助手侧「正在回复」占位气泡，请求结束即消失。
+- 对话区助手行（含正在回复、HITL 审核卡）显示智能体头像，用户气泡不带头像；审核卡在消息流底部。
 - 默认 CORS 含 Streamlit 8501 与 Vue 5173。
 - frontend/ Vue 3 + Vite 模块已落地：登录/注册、广场两步弹窗、卡片、对话+只读侧边栏。
-- Vitest 16 passed（含 login→modal→card→chat 与 HITL 禁用输入）。
+- Vitest 17 passed（含 login→modal→card→chat 与 HITL 禁用输入）。
 - vue-tsc + vite build 通过。
 - 默认 pytest 176 passed, 5 skipped（未开 RUN_LIVE_DOUYIN）。
 - 已对现网 FastAPI 跑通 register→login→create→list→open→sidebar→thread；sidebar 含工作流「抖音线索发现与触达」和工具 discover_douyin_leads，无 model 栏。

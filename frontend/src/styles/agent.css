@@ -94,8 +94,29 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
 .agent-chat-top { padding: 16px 20px; margin: 0; background: #fff; border-bottom: 1px solid var(--agent-border); }
 .agent-chat-identity { display: flex; align-items: center; gap: 10px; }
 .agent-messages { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.agent-msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+.agent-msg-row.is-user { justify-content: flex-end; }
+.agent-msg-avatar { flex: 0 0 32px; }
+.agent-msg-avatar .agent-avatar,
+.agent-msg-avatar .agent-avatar-fallback {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
 .agent-bubble { max-width: 72%; padding: 10px 14px; border-radius: 14px; background: #fff; border: 1px solid var(--agent-border); white-space: pre-wrap; }
 .agent-bubble.is-user { margin-left: auto; background: var(--agent-blue); color: #fff; border-color: var(--agent-blue); }
+.agent-msg-row .agent-bubble { max-width: calc(72% - 40px); }
+.agent-msg-row.is-user .agent-bubble { margin-left: 0; max-width: 72%; }
+.agent-msg-row.is-hitl .agent-hitl {
+  margin: 0;
+  max-width: min(560px, calc(100% - 40px));
+  flex: 1 1 auto;
+}
 .agent-bubble-pending {
   color: var(--agent-muted);
   display: inline-flex;

@@ -10,12 +10,17 @@ from app.repository import (
     ENGAGE_COMMENT_STATUSES,
     ENGAGE_DM_STATUSES,
     ENGAGE_VIDEO_STATUSES,
+    WORKFLOW_RUN_STATUSES,
     utcnow,
 )
 
 LEAD_WORKFLOW_CODE = DEFAULT_WORKFLOW_CODE
 DEDUP_WINDOW = timedelta(minutes=10)
 BLOCKED_ACCOUNT_STATUSES = frozenset({"paused", "needs_login"})
+DEFAULT_LEAD_PLATFORM = "douyin"
+DEFAULT_LEAD_LIMIT = 20
+DEFAULT_LEAD_CHANNELS = "comment,message"
+DEFAULT_DOUYIN_HTTP_BASE_URL = "http://192.168.1.33:8765"
 
 
 def json_tool_result(payload: dict[str, Any]) -> str:
@@ -34,8 +39,12 @@ def build_dify_inputs(
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "account": account,
+        "platform": DEFAULT_LEAD_PLATFORM,
         "no_send": False,
         "auto_login": True,
+        "assess": True,
+        "limit": DEFAULT_LEAD_LIMIT,
+        "channels": DEFAULT_LEAD_CHANNELS,
     }
     if keyword:
         inputs["keyword"] = keyword
@@ -49,8 +58,7 @@ def build_dify_inputs(
         inputs["list_status"] = list_status
     base_url = (getattr(settings, "douyin_http_base_url", "") or "").strip()
     api_token = (getattr(settings, "douyin_http_api_token", "") or "").strip()
-    if base_url:
-        inputs["base_url"] = base_url
+    inputs["base_url"] = base_url or DEFAULT_DOUYIN_HTTP_BASE_URL
     if api_token:
         inputs["api_token"] = api_token
     return inputs
@@ -277,6 +285,8 @@ def run_discover_douyin_leads(
     )
     result = dify_client.run(LEAD_WORKFLOW_CODE, inputs, user=str(user_id))
     status = str(result.get("status") or ("succeeded" if result.get("ok") else "failed"))
+    if status not in WORKFLOW_RUN_STATUSES:
+        status = "failed"
     outputs = result.get("outputs")
     error = result.get("error")
     workflow_run_id = result.get("workflow_run_id")

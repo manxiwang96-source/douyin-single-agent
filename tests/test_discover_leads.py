@@ -41,10 +41,22 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     assert inputs["keyword"] == "敏感肌"
     assert inputs["limit"] == 5
     assert inputs["channels"] == "comment,message"
+    assert inputs["platform"] == "douyin"
     assert inputs["no_send"] is False
     assert inputs["auto_login"] is True
-    assert "base_url" not in inputs
+    assert inputs["assess"] is True
+    assert inputs["base_url"] == "http://192.168.1.33:8765"
     assert "api_token" not in inputs
+    defaults = build_dify_inputs(settings, account="shop1", video_id="v9")
+    assert defaults["platform"] == "douyin"
+    assert defaults["limit"] == 20
+    assert defaults["channels"] == "comment,message"
+    assert defaults["assess"] is True
+    assert defaults["no_send"] is False
+    assert defaults["video_id"] == "v9"
+    assert defaults["base_url"] == "http://192.168.1.33:8765"
+    assert "keyword" not in defaults
+    assert "api_token" not in defaults
     filled = settings.model_copy(
         update={"douyin_http_base_url": "http://c.example.test", "douyin_http_api_token": "tok"}
     )
@@ -269,3 +281,14 @@ def test_graph_tool_uses_fake_and_keeps_tutorial_nodes(runtime, llm, dify_client
 def test_default_runtime_does_not_use_live_dify_client(runtime):
     assert isinstance(runtime.dify_client, FakeDifyClient)
     assert not isinstance(runtime.dify_client, DifyClient)
+
+def test_live_douyin_smoke_is_opt_in():
+    from pathlib import Path
+
+    source = Path(__file__).with_name("test_live_douyin.py").read_text(encoding="utf-8")
+    assert "RUN_LIVE_DOUYIN" in source
+    assert "LIVE_DOUYIN_ACCOUNT" in source
+    assert "LIVE_DOUYIN_VIDEO_ID" in source
+    assert "no_send" in source
+    assert "DifyClient" in source
+    assert "pytest.skip" in source

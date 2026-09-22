@@ -59,20 +59,28 @@ def test_memory_bank_docs_do_not_commit_secrets():
     assert found == [], f"secrets leaked: {found}"
 
 
-def test_architecture_records_assistant_runtime():
+def test_architecture_records_douyin_worker_runtime():
     text = _read(ROOT / "memory-bank" / "architecture.md")
     required = [
-        "个人超级助理",
+        "抖音运营智能体",
         "PostgresSaver",
         "PostgresStore",
         "InMemorySaver",
         "FastMCP",
         "send_email",
-        "run_morning_brief",
-        "POST /v1/assistant/jobs/run",
-        "RUN_LIVE_ASSISTANT=1",
+        "discover_douyin_leads",
+        "douyin-lead-discovery",
+        "POST /v1/workflows/run",
+        "no_send=false",
+        "DIFY_LIVE_ENABLED",
+        "RUN_LIVE_DOUYIN=1",
         "chatbot",
         "tools",
+        "广场",
+        "(user_id, agent_instance_id",
+        "scheduler_enabled",
+        "Streamlit",
+        "Bearer",
     ]
     missing = [item for item in required if item not in text]
     assert missing == [], f"missing architecture snippets: {missing}"

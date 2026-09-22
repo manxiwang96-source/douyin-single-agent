@@ -136,9 +136,11 @@ def test_validate_production_passes_with_required_fields():
 
 def test_public_config_excludes_dify_secrets():
     settings = Settings(
+        _env_file=None,
         dify_base_url="http://192.168.1.158/v1",
         dify_api_key="secret-key",
         douyin_http_api_token="secret-token",
+        dify_live_enabled=False,
     )
     public = settings.public_config()
     assert public["dify_lead_app_id"] == "douyin-lead-discovery"

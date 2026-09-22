@@ -8,20 +8,12 @@ Canonical product doc: docs/modify/抖音运营智能体修改设计方案（1�
 Phased execution for a new conversation: stage/README.md and stage/抖音运营智能体分阶段实施套餐.md.
 Do not treat deleted stage1/ as source. Do not edit C's Dify.
 
-## Phase 0 landed
-Read-only catalog `douyin_ops`; Douyin identity prompt; Settings Dify fields; `scheduler_enabled` default false; `knowledge/douyin_ops_demo`; FastAPI/Streamlit title copy. Runtime graph/API/memory namespaces are still the personal assistant.
-
-## Phase 1 landed
-Business SQL in `app/sql/001_business.sql`. Test repository is `InMemoryBusinessRepository`. Production applies schema, requires pgvector, and uses `PostgresBusinessRepository`. Instance create then Store seed is not one distributed transaction; seed failure marks `agent_knowledge_documents.status=failed` and keeps the instance.
-
-## Phase 2 landed
-Real `login_name` + PBKDF2 password hash. Bearer session 7 days. Plaza HTTP: list/create/patch/open/sidebar/avatar. Create binds `douyin-lead-discovery` and seeds demo KB. Opening a thread does not bump card `updated_at`. Old unauthenticated `POST /v1/threads` is no longer the product entry.
-
-## Phase 3 landed
-`ainvoke` configurable carries `thread_id` / `user_id` / `agent_instance_id` / `allowed_workflow_codes`. Profile memory uses `(user_id, agent_instance_id, "profile")`. Chatbot retrieve and `search_kb` use `(user_id, agent_instance_id, "kb")` and skip re-embedding the last ToolMessage. Media lives under `outputs/{user_id}/{agent_instance_id}/images|videos` with owner ids in the URL; cross-user access is 404/403; anonymous media is 401. `media_assets` is written on generate. Graph nodes remain chatbot + tools.
-
-## Phase 4 landed
-`DifyClient.run(name, inputs, *, user=)` posts `{DIFY_BASE_URL}/workflows/run` with Bearer `DIFY_API_KEY` and `response_mode=blocking`. Live disabled plus no injected http_client does not POST. Default pytest injects FakeDifyClient. Tool `discover_douyin_leads` lives in the existing ToolNode. Server forces `no_send=false` and `auto_login=true`; empty `base_url`/`api_token` are omitted. `user` is our `user_id`. Paused/needs_login accounts are rejected; missing projection rows are allowed. In-progress runs in a 10-minute window are reused. Each real call writes `workflow_runs`; `list_comment`/`list_message`/`snapshot` writeback is best-effort.
+## Phase 0-7 landed
+Docs/config, business SQL, login/plaza HTTP, per-instance isolation, DifyClient + discover_douyin_leads, job cancel HTTP/tools, Streamlit plaza client, live Dify true-send behind local `DIFY_LIVE_ENABLED=true` (not committed).
+Default pytest still injects FakeDifyClient and must not true-send.
+Live gate: `RUN_LIVE_DOUYIN=1` with `LIVE_DOUYIN_ACCOUNT` / `LIVE_DOUYIN_VIDEO_ID`. If `video_id` is present, keyword is omitted.
+Worker hardcodes `no_send=false`. Empty `DOUYIN_HTTP_BASE_URL` uses published default `http://192.168.1.33:8765`. Empty `DOUYIN_HTTP_API_TOKEN` is omitted from stored inputs; live HTTP fills missing required start-node defaults from `GET /parameters`.
+Do not write Dify keys, tokens, or passwords into git / docs / agent_memory.
 
 ## Plaza/sidebar
 一人多实例; unique title per user among non-archived (case-insensitive, no whitespace); card avatar/name/intro/mode/timestamps; sidebar capability_description + development notes + read-only single mode + knowledge panel; no model column; catalog supplies workflow/tool names and user_facing_summary. Chat click does not bump updated_at.
@@ -29,8 +21,7 @@ Real `login_name` + PBKDF2 password hash. Bearer session 7 days. Plaza HTTP: lis
 ## Dify / tools
 Keep ToolNode + DifyClient + catalog/binding. Do not wrap C's Dify as MCP.
 v1 transport: POST /v1/workflows/run + DIFY_API_KEY, tool discover_douyin_leads, no_send=false.
-Phases 0-6 mock only; phase 7 live true-send behind DIFY_LIVE_ENABLED.
-DOUYIN_HTTP_* may be empty because C's workflow has defaults.
+DOUYIN_HTTP_* may be empty because C's workflow has defaults; `/workflows/run` does not apply console defaults, so the worker fills required missing fields.
 Reserve agent_instance_workflows. Catalog stays code/config. Do not compile a graph per instance.
 
 ## Client

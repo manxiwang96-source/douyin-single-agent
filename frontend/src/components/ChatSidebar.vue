@@ -39,10 +39,29 @@ watch(
           class="agent-task-step"
           :class="['is-' + step.status, { 'is-spin': step.spin }]"
         >
-          <span v-if="step.spin" class="agent-task-spin" aria-hidden="true"></span>
-          <span v-else-if="step.status === 'done'" class="agent-task-check" aria-hidden="true">✓</span>
-          <span v-else class="agent-task-wait" aria-hidden="true"></span>
-          <span class="agent-task-label">{{ step.label }}</span>
+          <div class="agent-task-row">
+            <span v-if="step.spin" class="agent-task-spin" aria-hidden="true"></span>
+            <span v-else-if="step.status === 'done'" class="agent-task-check" aria-hidden="true">✓</span>
+            <span v-else-if="step.status === 'failed'" class="agent-task-fail" aria-hidden="true">✕</span>
+            <span v-else class="agent-task-wait" aria-hidden="true"></span>
+            <span class="agent-task-label">{{ step.label }}</span>
+          </div>
+          <ol v-if="step.children && step.children.length" class="agent-task-children">
+            <li
+              v-for="child in step.children"
+              :key="child.id"
+              class="agent-task-step"
+              :class="['is-' + child.status, { 'is-spin': child.spin }]"
+            >
+              <div class="agent-task-row">
+                <span v-if="child.spin" class="agent-task-spin" aria-hidden="true"></span>
+                <span v-else-if="child.status === 'done'" class="agent-task-check" aria-hidden="true">✓</span>
+                <span v-else-if="child.status === 'failed'" class="agent-task-fail" aria-hidden="true">✕</span>
+                <span v-else class="agent-task-wait" aria-hidden="true"></span>
+                <span class="agent-task-label">{{ child.label }}</span>
+              </div>
+            </li>
+          </ol>
         </li>
       </ol>
     </section>

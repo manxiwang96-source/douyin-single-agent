@@ -306,14 +306,28 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
 .agent-task-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .agent-task-step {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   color: var(--agent-muted);
   font-size: 13px;
   line-height: 1.5;
 }
+.agent-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
 .agent-task-step.is-running { color: var(--agent-text); }
+.agent-task-step.is-failed { color: var(--agent-danger); }
 .agent-task-label { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.agent-task-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 20px;
+  display: grid;
+  gap: 6px;
+}
 .agent-task-spin {
   width: 12px;
   height: 12px;
@@ -328,6 +342,13 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
   flex: 0 0 auto;
   width: 12px;
   color: var(--agent-blue);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.agent-task-fail {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--agent-danger);
   font-size: 12px;
   line-height: 1.5;
 }

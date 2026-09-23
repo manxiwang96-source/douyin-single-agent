@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -82,8 +83,8 @@ def _tool_label(name: str, state: str = "running") -> str:
     return '正在调用工具'
 
 
-def _step(*, id: str, kind: str, tool: str | None, label: str, status: str) -> dict[str, Any]:
-    return {
+def _step(*, id: str, kind: str, tool: str | None, label: str, status: str, children=None, error=None) -> dict[str, Any]:
+    step = {
         "id": id,
         "kind": kind,
         "tool": tool,
@@ -91,6 +92,134 @@ def _step(*, id: str, kind: str, tool: str | None, label: str, status: str) -> d
         "status": status,
         "spin": status == "running",
     }
+    if children:
+        step["children"] = children
+    if error:
+        step["error"] = error
+    return step
+
+
+FAILED_TOOL_STATUSES = frozenset({"failed", "timeout", "auth_expired"})
+
+
+def _coerce_index(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_child_status(status: Any) -> str:
+    text = str(status or "").strip().lower()
+    if text in {"running", "in_progress"}:
+        return "running"
+    if text in {"failed", "fail", "error", "timeout", "cancelled", "canceled", "auth_expired"}:
+        return "failed"
+    if text in {"succeeded", "success", "completed", "done", "waiting"}:
+        return "done" if text != "waiting" else "waiting"
+    return "done"
+
+
+def dify_child_step(node: dict[str, Any] | None) -> dict[str, Any]:
+    source = node if isinstance(node, dict) else {}
+    if source.get("kind") == "dify_node":
+        step_id = str(source.get("id") or "")
+        node_id = str(source.get("node_id") or "")
+        index = _coerce_index(source.get("index"))
+        if not step_id:
+            step_id = f"dify:{node_id}:{index}"
+        label = str(source.get("label") or source.get("title") or node_id or step_id)
+        status = _normalize_child_status(source.get("status"))
+        return _step(
+            id=step_id,
+            kind="dify_node",
+            tool="discover_douyin_leads",
+            label=label,
+            status=status,
+            error=source.get("error"),
+        )
+    nested = source.get("data") if isinstance(source.get("data"), dict) else {}
+    node_id = str(source.get("node_id") or nested.get("node_id") or "")
+    index = _coerce_index(source.get("index") if source.get("index") is not None else nested.get("index"))
+    title = source.get("title") or nested.get("title") or source.get("label") or node_id
+    event_name = str(source.get("event") or "")
+    if event_name == "node_started":
+        status = "running"
+    elif event_name == "node_finished":
+        status = _normalize_child_status(nested.get("status") or source.get("status"))
+    else:
+        status = _normalize_child_status(source.get("status") or nested.get("status"))
+    error = source.get("error") or nested.get("error")
+    return _step(
+        id=f"dify:{node_id}:{index}",
+        kind="dify_node",
+        tool="discover_douyin_leads",
+        label=str(title or node_id),
+        status=status,
+        error=error,
+    )
+
+
+def _children_from_nodes(nodes: Any) -> list[dict[str, Any]]:
+    if not isinstance(nodes, list):
+        return []
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    indexes: dict[str, int] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        child = dify_child_step(node)
+        child_id = child["id"]
+        index = _coerce_index(node.get("index") if node.get("index") is not None else (node.get("data") or {}).get("index") if isinstance(node.get("data"), dict) else child_id.rsplit(":", 1)[-1])
+        indexes[child_id] = index
+        if child_id in by_id:
+            by_id[child_id] = child
+        else:
+            order.append(child_id)
+            by_id[child_id] = child
+    children = [by_id[item] for item in order]
+    children.sort(key=lambda item: (indexes.get(item["id"], 0), item["id"]))
+    return children
+
+
+def overlay_live_dify_children(progress: dict[str, Any], live_children: list[dict[str, Any]] | None) -> dict[str, Any]:
+    if not live_children:
+        return progress
+    steps = list(progress.get("steps") or [])
+    updated = False
+    next_steps: list[dict[str, Any]] = []
+    for step in steps:
+        if not updated and step.get("tool") == "discover_douyin_leads":
+            cloned = dict(step)
+            cloned["children"] = list(live_children)
+            next_steps.append(cloned)
+            updated = True
+        else:
+            next_steps.append(step)
+    if not updated:
+        return progress
+    return {**progress, "steps": next_steps}
+
+
+def _parse_tool_payload(content: str) -> dict[str, Any] | None:
+    text = (content or "").strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _tool_step_status(payload: dict[str, Any] | None) -> str:
+    if not payload:
+        return "done"
+    status = str(payload.get("status") or "").strip().lower()
+    if payload.get("ok") is False or status in FAILED_TOOL_STATUSES:
+        return "failed"
+    return "done"
 
 
 def _idle() -> dict[str, Any]:
@@ -177,13 +306,18 @@ def thread_progress(snapshot) -> dict[str, Any]:
                     )
                 )
                 continue
+            payload = _parse_tool_payload(content)
+            children = None
+            if name == "discover_douyin_leads" and payload is not None:
+                children = _children_from_nodes(payload.get("workflow_nodes")) or None
             upsert(
                 _step(
                     id=f"tool:{name}:{call_id}",
                     kind="tool",
                     tool=name or None,
                     label=_tool_label(name, "running"),
-                    status="done",
+                    status=_tool_step_status(payload),
+                    children=children,
                 )
             )
 
@@ -198,6 +332,8 @@ def thread_progress(snapshot) -> dict[str, Any]:
                     tool=tool or step.get("tool"),
                     label=_tool_label(tool, "waiting"),
                     status="waiting",
+                    children=step.get("children"),
+                    error=step.get("error"),
                 )
                 updated = True
                 break

@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.knowledge import kb_namespace, profile_namespace
 from tests.fakes import TINY_PNG, ai_text, ai_tool
 from tests.graph_helpers import graph_config
-from tests.http_helpers import create_and_open, make_client, register_and_login
+from tests.http_helpers import create_and_open, make_client, post_chat, register_and_login
 
 
 USER_A = "11111111-1111-4111-8111-111111111111"
@@ -97,8 +97,9 @@ def test_http_media_is_isolated_and_recorded(runtime, llm, image_client):
     register_and_login(client, login_name="alice")
     opened = create_and_open(client, title="agent-a")
     thread_id = opened["thread_id"]
-    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "draw"})
-    resumed = client.post(
+    post_chat(client, f"/v1/threads/{thread_id}/messages", json={"content": "draw"})
+    resumed = post_chat(
+        client,
         f"/v1/threads/{thread_id}/resume",
         json={"action": "approve", "prompt": "bottle", "params": {}},
     )

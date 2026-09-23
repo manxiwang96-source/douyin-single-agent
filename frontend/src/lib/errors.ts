@@ -12,15 +12,37 @@ const DETAIL_MAP: Record<string, string> = {
   "agent instance not found": "该智能体不存在或已归档",
 };
 
+export class ChatHttpError extends Error {
+  status: number;
+  detail: string;
+  code?: string;
+
+  constructor(status: number, detail: string, code?: string) {
+    super(detail);
+    this.name = "ChatHttpError";
+    this.status = status;
+    this.detail = detail;
+    this.code = code;
+  }
+}
+
+function mappedDetail(detail: unknown, code?: string): string | null {
+  if (typeof detail === "string" && detail) {
+    return DETAIL_MAP[detail] || detail;
+  }
+  if (code === "ECONNABORTED") {
+    return "请求超时，请稍后重试";
+  }
+  return null;
+}
+
 export function apiErrorMessage(error: unknown, fallback = "请求失败，请重试"): string {
+  if (error instanceof ChatHttpError) {
+    return mappedDetail(error.detail, error.code) || fallback;
+  }
   if (axios.isAxiosError(error)) {
-    const detail = error.response?.data?.detail;
-    if (typeof detail === "string" && detail) {
-      return DETAIL_MAP[detail] || detail;
-    }
-    if (error.code === "ECONNABORTED") {
-      return "请求超时，请稍后重试";
-    }
+    const mapped = mappedDetail(error.response?.data?.detail, error.code);
+    if (mapped) return mapped;
   }
   if (error instanceof Error && error.message) {
     return error.message;

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.thread_progress import MEDIA_TOOLS
 from tests.fakes import DUMMY_MP4, TINY_PNG, ai_text, ai_tool
-from tests.http_helpers import create_and_open, make_client, register_and_login
+from tests.http_helpers import create_and_open, make_client, post_chat, register_and_login
 
 
 def test_import_main_does_not_boot_runtime():
@@ -45,7 +45,8 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert empty.json()["id"] == thread_id
     assert empty.json()["progress"] == {"round_id": None, "phase": "idle", "steps": []}
 
-    interrupted = client.post(
+    interrupted = post_chat(
+        client,
         f"/v1/threads/{thread_id}/messages",
         json={"content": "draw an image"},
     )
@@ -58,13 +59,15 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert any(step["label"] == MEDIA_TOOLS["generate_image"]["waiting"] for step in body["progress"]["steps"])
     assert all((not step["spin"]) for step in body["progress"]["steps"] if step["status"] == "waiting")
 
-    blocked = client.post(
+    blocked = post_chat(
+        client,
         f"/v1/threads/{thread_id}/messages",
         json={"content": "another one"},
     )
     assert blocked.status_code == 409
 
-    resumed = client.post(
+    resumed = post_chat(
+        client,
         f"/v1/threads/{thread_id}/resume",
         json={"action": "approve", "prompt": "bottle", "params": {}},
     )
@@ -94,7 +97,8 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
 def test_thread_messages_expose_server_metadata_and_client_identity(runtime, llm):
     llm.responses = [ai_text("收到")]
     client, thread_id = _open_thread(runtime)
-    response = client.post(
+    response = post_chat(
+        client,
         f"/v1/threads/{thread_id}/messages",
         json={"content": "带客户端标识的消息", "client_message_id": "client-123"},
     )
@@ -119,8 +123,9 @@ def test_skip_resume_has_no_media_url(runtime, llm, image_client):
         ai_text("skipped"),
     ]
     client, thread_id = _open_thread(runtime)
-    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "image"})
-    resumed = client.post(
+    post_chat(client, f"/v1/threads/{thread_id}/messages", json={"content": "image"})
+    resumed = post_chat(
+        client,
         f"/v1/threads/{thread_id}/resume",
         json={"action": "skip"},
     )
@@ -144,8 +149,9 @@ def test_video_media_content_type(runtime, llm, video_client):
         ai_text("video ready"),
     ]
     client, thread_id = _open_thread(runtime)
-    client.post(f"/v1/threads/{thread_id}/messages", json={"content": "video"})
-    resumed = client.post(
+    post_chat(client, f"/v1/threads/{thread_id}/messages", json={"content": "video"})
+    resumed = post_chat(
+        client,
         f"/v1/threads/{thread_id}/resume",
         json={"action": "approve"},
     )

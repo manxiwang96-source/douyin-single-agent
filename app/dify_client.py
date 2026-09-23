@@ -191,8 +191,66 @@ def parse_dify_workflow_payload(payload: Any, *, http_status: int | None = None)
     }
 
 
+
+def _node_progress_status(status: Any, *, event_name: str = "") -> str:
+    if event_name == "node_started":
+        return "running"
+    text = str(status or "").strip().lower()
+    if text in {"running", "in_progress"}:
+        return "running"
+    if text in {"failed", "fail", "error", "timeout", "cancelled", "canceled", "auth_expired"}:
+        return "failed"
+    if text in {"succeeded", "success", "completed", "done"}:
+        return "done"
+    if event_name == "node_finished":
+        return "failed" if text else "done"
+    return "done"
+
+
+def compact_workflow_node(event_or_node: Any) -> dict[str, Any] | None:
+    """Keep a compact Dify node snapshot for live overlay and ToolMessage replay."""
+    if not isinstance(event_or_node, dict):
+        return None
+    event_name = str(event_or_node.get("event") or "")
+    if event_name in {"ping", "text_chunk", "workflow_started", "workflow_finished"}:
+        return None
+    data = event_or_node.get("data") if isinstance(event_or_node.get("data"), dict) else event_or_node
+    if not isinstance(data, dict):
+        return None
+    node_id = str(data.get("node_id") or event_or_node.get("node_id") or "")
+    if not node_id:
+        return None
+    title = data.get("title") or event_or_node.get("title") or node_id
+    node_type = data.get("node_type") or event_or_node.get("node_type")
+    index = data.get("index")
+    if index is None:
+        index = event_or_node.get("index")
+    try:
+        index = int(index)
+    except (TypeError, ValueError):
+        index = 0
+    status = _node_progress_status(
+        data.get("status") or event_or_node.get("status"),
+        event_name=event_name,
+    )
+    error = data.get("error") or event_or_node.get("error")
+    compact = {
+        "node_id": node_id,
+        "title": str(title),
+        "node_type": node_type,
+        "index": index,
+        "status": status,
+    }
+    if error not in (None, ""):
+        compact["error"] = error if isinstance(error, str) else json.dumps(error, ensure_ascii=False)
+    return compact
+
+
+compact_dify_node_event = compact_workflow_node
+
+
 class DifyClient:
-    """Blocking Dify Workflows HTTP client. Live calls stay behind DIFY_LIVE_ENABLED."""
+    """Streaming Dify Workflows HTTP client. Live calls stay behind DIFY_LIVE_ENABLED."""
 
     def __init__(self, settings, *, http_client: httpx.Client | None = None):
         self.settings = settings
@@ -228,7 +286,96 @@ class DifyClient:
             "error": error,
         }
 
-    def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None) -> dict[str, Any]:
+    def _content_type(self, response) -> str:
+        headers = getattr(response, "headers", None) or {}
+        try:
+            return str(headers.get("content-type") or headers.get("Content-Type") or "").lower()
+        except Exception:
+            return ""
+
+    def _iter_sse_lines(self, response):
+        if hasattr(response, "iter_lines"):
+            for line in response.iter_lines():
+                if isinstance(line, bytes):
+                    yield line.decode("utf-8", errors="replace")
+                else:
+                    yield str(line or "")
+            return
+        content = getattr(response, "text", None)
+        if content is None:
+            raw = getattr(response, "content", b"")
+            content = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw or "")
+        for line in str(content).splitlines():
+            yield line
+
+    def _consume_event_stream(self, name: str, response, *, on_event=None) -> dict[str, Any]:
+        finished = None
+        for line in self._iter_sse_lines(response):
+            text = (line or "").strip()
+            if not text:
+                continue
+            if text.startswith("data:"):
+                raw = text[5:].strip()
+            else:
+                continue
+            if not raw or raw == "[DONE]":
+                continue
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            event_name = str(payload.get("event") or "")
+            if event_name in {"ping", "text_chunk", "workflow_started"}:
+                continue
+            if event_name == "workflow_finished":
+                finished = payload
+                continue
+            if on_event is None or event_name not in {"node_started", "node_finished"}:
+                continue
+            compact = compact_workflow_node(payload)
+            if compact is not None:
+                on_event(compact)
+        if finished is None:
+            return self._failure(name, "failed", "missing workflow_finished")
+        parsed = parse_dify_workflow_payload(finished, http_status=getattr(response, "status_code", None))
+        parsed["name"] = name
+        return parsed
+
+    def _consume_http_response(self, name: str, response, *, on_event=None) -> dict[str, Any]:
+        status_code = getattr(response, "status_code", None)
+        if status_code == 401:
+            return self._failure(name, "auth_expired", "auth_expired")
+        if "event-stream" in self._content_type(response):
+            parsed = self._consume_event_stream(name, response, on_event=on_event)
+        else:
+            try:
+                payload = response.json()
+                parsed = parse_dify_workflow_payload(payload, http_status=status_code)
+            except Exception:
+                parsed = self._failure(name, "failed", f"invalid dify response ({status_code})")
+            parsed["name"] = name
+        if status_code is not None and status_code >= 400 and parsed.get("status") not in {"auth_expired", "timeout"}:
+            parsed["ok"] = False
+            parsed["workflow_ok"] = False
+            parsed["status"] = "failed"
+            parsed["error"] = parsed.get("error") or f"http {status_code}"
+        parsed["name"] = name
+        return parsed
+
+    def _post_workflow(self, client, name: str, url: str, headers: dict[str, str], body: dict[str, Any], *, on_event=None) -> dict[str, Any]:
+        timeout = self.settings.dify_timeout_s
+        if hasattr(client, "stream"):
+            stream_cm = client.stream("POST", url, headers=headers, json=body, timeout=timeout)
+            if hasattr(stream_cm, "__enter__"):
+                with stream_cm as response:
+                    return self._consume_http_response(name, response, on_event=on_event)
+            return self._consume_http_response(name, stream_cm, on_event=on_event)
+        response = client.post(url, headers=headers, json=body, timeout=timeout)
+        return self._consume_http_response(name, response, on_event=on_event)
+
+    def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None, on_event=None) -> dict[str, Any]:
         payload_inputs = dict(inputs or {})
         payload_inputs["no_send"] = False
         if not self.settings.dify_live_enabled and self.http_client is None:
@@ -253,10 +400,10 @@ class DifyClient:
                         http_inputs[key] = value
             body = {
                 "inputs": stringify_dify_inputs(http_inputs),
-                "response_mode": "blocking",
+                "response_mode": "streaming",
                 "user": str(user or ""),
             }
-            response = client.post(url, headers=headers, json=body, timeout=self.settings.dify_timeout_s)
+            parsed = self._post_workflow(client, name, url, headers, body, on_event=on_event)
         except httpx.TimeoutException as exc:
             return self._failure(name, "timeout", f"timeout: {exc}")
         except httpx.HTTPError as exc:
@@ -264,16 +411,5 @@ class DifyClient:
         finally:
             if owns_client and client is not None:
                 client.close()
-        if response.status_code == 401:
-            return self._failure(name, "auth_expired", "auth_expired")
-        try:
-            parsed = parse_dify_workflow_payload(response.json(), http_status=response.status_code)
-        except Exception:
-            parsed = self._failure(name, "failed", f"invalid dify response ({response.status_code})")
-        if response.status_code >= 400 and parsed.get("status") not in {"auth_expired", "timeout"}:
-            parsed["ok"] = False
-            parsed["workflow_ok"] = False
-            parsed["status"] = "failed"
-            parsed["error"] = parsed.get("error") or f"http {response.status_code}"
         parsed["name"] = name
         return parsed

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendPendingToken,
   approveResumePayload,
   buildChatView,
+  clearPendingDraft,
   markRequestMessage,
   mergeChatMessages,
   messageTime,
@@ -147,6 +149,43 @@ describe("task progress helpers", () => {
     expect(parsed.steps[1].label).toBe("知识库检索");
   });
 
+  it("parses nested Dify children and does not spin unknown status", () => {
+    const parsed = threadProgress({
+      progress: {
+        round_id: "client-1",
+        phase: "running",
+        steps: [
+          {
+            id: "tool:discover_douyin_leads:c1",
+            kind: "tool",
+            tool: "discover_douyin_leads",
+            label: "正在运行「抖音线索发现与触达」",
+            status: "running",
+            children: [
+              { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done" },
+              { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "failed" },
+              { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "未知", status: "mystery" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(parsed.steps[0].children?.map((step) => [step.kind, step.status, step.spin])).toEqual([
+      ["dify_node", "done", false],
+      ["dify_node", "failed", false],
+      ["dify_node", "waiting", false],
+    ]);
+  });
+
+  it("replaces the pending placeholder with tokens and restores it on running", () => {
+    const pending = optimisticMessages("问", "client-1");
+    const withToken = appendPendingToken(pending, "client-1", "你好");
+    expect(withToken[1].content).toBe("你好");
+    const appended = appendPendingToken(withToken, "client-1", "世界");
+    expect(appended[1].content).toBe("你好世界");
+    expect(clearPendingDraft(appended, "client-1")[1].content).toBe("正在回复");
+  });
+
   it("creates local thinking progress for a new user round", () => {
     const progress = localThinkingProgress("client-new");
     expect(progress).toEqual({
@@ -175,6 +214,32 @@ describe("task progress helpers", () => {
     expect(frozen.steps.map((step) => step.label)).toEqual(["正在思考", "已跳过「生成图片」"]);
     expect(frozen.steps.some((step) => step.kind === "composing")).toBe(false);
     expect(isSkippedProgress(frozen)).toBe(true);
+  });
+
+  it("keeps unrelated Dify children when freezing Skip", () => {
+    const frozen = freezeSkipProgress(
+      {
+        round_id: "client-1",
+        phase: "waiting_review",
+        steps: [
+          {
+            id: "tool:generate_image:c1",
+            kind: "review",
+            tool: "generate_image",
+            label: "等待审核「生成图片」",
+            status: "waiting",
+            spin: false,
+            children: [
+              { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
+            ],
+          },
+        ],
+      },
+      "generate_image",
+    );
+    expect(frozen.phase).toBe("done");
+    expect(frozen.steps[0].children?.[0].label).toBe("开始");
+    expect(frozen.steps[0].children?.[0].kind).toBe("dify_node");
   });
 
   it("ignores other-round and post-skip composing updates", () => {

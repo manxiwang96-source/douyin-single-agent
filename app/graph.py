@@ -176,7 +176,21 @@ def build_graph(*, llm, tools, checkpointer, store=None):
 
     async def achatbot(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         bound, payload = _chat_payload(state, config)
-        return _chat_result(await bound.ainvoke(payload), state, config)
+        astream = getattr(bound, "astream", None)
+        if not callable(astream):
+            return _chat_result(await bound.ainvoke(payload), state, config)
+        message = None
+        async for chunk in astream(payload):
+            if message is None:
+                message = chunk
+                continue
+            try:
+                message = message + chunk
+            except Exception:
+                message = chunk
+        if message is None:
+            message = await bound.ainvoke(payload)
+        return _chat_result(message, state, config)
 
     builder = StateGraph(AgentState)
     builder.add_node("chatbot", RunnableCallable(chatbot, achatbot, name="chatbot"))

@@ -303,7 +303,91 @@ describe("ChatView HITL", () => {
     expect(wrapper.get(".agent-task-progress").text()).toContain("正在思考");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
     expect(wrapper.text()).not.toContain("POLL_WIPE");
-    expect(getThread.mock.calls.length).toBeGreaterThan(pollCallsBeforeSend);
+    expect(getThread.mock.calls.length).toBe(pollCallsBeforeSend);
+  });
+
+  it("appends SSE tokens to the pending bubble then applyThread on the final thread", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    let handlers: { onProgress?: Function; onToken?: Function } | undefined;
+    let resolvePost: (value: unknown) => void = () => undefined;
+    postMessage.mockImplementation(
+      (_threadId: string, _content: string, _clientMessageId: string, nextHandlers?: { onProgress?: Function; onToken?: Function }) => {
+        handlers = nextHandlers;
+        return new Promise((resolve) => {
+          resolvePost = resolve;
+        });
+      },
+    );
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("你好");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    handlers?.onToken?.("你好");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("你好");
+    expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("正在回复");
+    const clientMessageId = String(postMessage.mock.calls[0][2]);
+    resolvePost({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "你好", message_id: "u1", client_message_id: clientMessageId },
+        { role: "assistant", content: "你好世界", message_id: "a1", client_message_id: clientMessageId },
+      ],
+    });
+    await flushPromises();
+    expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
+    expect(wrapper.text()).toContain("你好世界");
+  });
+
+  it("drops early tokens when progress phase becomes running", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    let handlers: { onProgress?: Function; onToken?: Function } | undefined;
+    postMessage.mockImplementation(
+      (_threadId: string, _content: string, _clientMessageId: string, nextHandlers?: { onProgress?: Function; onToken?: Function }) => {
+        handlers = nextHandlers;
+        return new Promise(() => undefined);
+      },
+    );
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("找线索");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    handlers?.onToken?.("提前草稿");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("提前草稿");
+    const clientMessageId = String(postMessage.mock.calls[0][2]);
+    handlers?.onProgress?.({
+      round_id: clientMessageId,
+      phase: "running",
+      steps: [
+        { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+        {
+          id: "tool:discover_douyin_leads:c1",
+          kind: "tool",
+          tool: "discover_douyin_leads",
+          label: "正在运行「抖音线索发现与触达」",
+          status: "running",
+          spin: true,
+          children: [
+            { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
+            { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "running", spin: true },
+            { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "失败节点", status: "failed", spin: false },
+          ],
+        },
+      ],
+    });
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("提前草稿");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「抖音线索发现与触达」");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("开始");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("请求抖音");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("失败节点");
+    expect(wrapper.get(".agent-task-fail").text()).toBe("✕");
   });
 
   it("keeps task history after the final reply and resets only on the next user message", async () => {

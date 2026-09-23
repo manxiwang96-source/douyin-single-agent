@@ -6,8 +6,10 @@ import { fetchAuthBlob, getThread, postMessage, resumeThread } from "../api/thre
 import ChatSidebar from "../components/ChatSidebar.vue";
 import HitlCard from "../components/HitlCard.vue";
 import {
+  appendPendingToken,
   approveResumePayload,
   buildChatView,
+  clearPendingDraft,
   freezeSkipProgress,
   interruptCard,
   isSkippedProgress,
@@ -49,19 +51,11 @@ const skipFrozen = ref(false);
 const taskProgress = ref<TaskProgress>(threadProgress(null));
 const blobUrls = new Map<string, string>();
 let avatarObjectUrl = "";
-let progressTimer: number | null = null;
 
 function revokeAvatar() {
   if (avatarObjectUrl) {
     URL.revokeObjectURL(avatarObjectUrl);
     avatarObjectUrl = "";
-  }
-}
-
-function stopProgressPoll() {
-  if (progressTimer != null) {
-    window.clearInterval(progressTimer);
-    progressTimer = null;
   }
 }
 
@@ -76,22 +70,15 @@ function applyProgressFromThread(thread: Record<string, unknown>) {
   applyTaskProgress(threadProgress(thread));
 }
 
-async function pollTaskProgress() {
-  if (!threadId.value) return;
-  try {
-    const thread = await getThread(threadId.value);
-    applyProgressFromThread(thread);
-  } catch {
-    // Polling must never rewrite chat bubbles; ignore transient GET errors.
+function applyStreamProgress(progress: TaskProgress, clientMessageId?: string) {
+  applyTaskProgress(progress);
+  if (progress.phase === "running") {
+    messages.value = clearPendingDraft(messages.value, clientMessageId);
   }
 }
 
-function startProgressPoll() {
-  stopProgressPoll();
-  void pollTaskProgress();
-  progressTimer = window.setInterval(() => {
-    void pollTaskProgress();
-  }, 1000);
+function applyStreamToken(delta: string, clientMessageId: string) {
+  messages.value = appendPendingToken(messages.value, clientMessageId, delta);
 }
 
 function isTimeoutError(err: unknown): boolean {
@@ -176,7 +163,10 @@ async function send() {
   messages.value = [...messages.value, ...optimisticMessages(content, clientMessageId)];
   activeRequests.value += 1;
   try {
-    const thread = await postMessage(threadId.value, content, clientMessageId);
+    const thread = await postMessage(threadId.value, content, clientMessageId, {
+      onProgress: (progress) => applyStreamProgress(progress, clientMessageId),
+      onToken: (delta) => applyStreamToken(delta, clientMessageId),
+    });
     await applyThread(thread, clientMessageId, bootstrapVersion.value, requestVersion);
     applyProgressFromThread(thread);
   } catch (err) {
@@ -192,7 +182,10 @@ async function onApprove(payload: { prompt: string; params: Record<string, unkno
   activeRequests.value += 1;
   error.value = "";
   try {
-    const thread = await resumeThread(threadId.value, approveResumePayload(payload.prompt, payload.params));
+    const thread = await resumeThread(threadId.value, approveResumePayload(payload.prompt, payload.params), {
+      onProgress: (progress) => applyStreamProgress(progress),
+      onToken: (delta) => applyStreamToken(delta, ""),
+    });
     await applyThread(thread);
     applyProgressFromThread(thread);
   } catch (err) {
@@ -209,7 +202,9 @@ async function onSkip() {
   activeRequests.value += 1;
   error.value = "";
   try {
-    const thread = await resumeThread(threadId.value, skipResumePayload());
+    const thread = await resumeThread(threadId.value, skipResumePayload(), {
+      onProgress: (progress) => applyStreamProgress(progress),
+    });
     await applyThread(thread);
     applyProgressFromThread(thread);
   } catch (err) {
@@ -226,12 +221,7 @@ async function logout() {
 
 onMounted(bootstrap);
 watch(agentInstanceId, bootstrap);
-watch(sending, (value) => {
-  if (value) startProgressPoll();
-  else stopProgressPoll();
-});
 onUnmounted(() => {
-  stopProgressPoll();
   revokeAvatar();
   for (const url of blobUrls.values()) URL.revokeObjectURL(url);
 });

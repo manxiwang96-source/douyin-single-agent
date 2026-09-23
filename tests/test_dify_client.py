@@ -43,7 +43,7 @@ def test_http_401_maps_to_auth_expired(settings):
     assert str(request.url) == "https://dify.example.test/v1/workflows/run"
     assert request.headers["Authorization"] == "Bearer fake-key"
     body = json.loads(request.content)
-    assert body["response_mode"] == "blocking"
+    assert body["response_mode"] == "streaming"
     assert body["user"] == "user-1"
     assert body["inputs"]["no_send"] == "false"
     assert body["inputs"]["auto_login"] == "true"
@@ -52,6 +52,9 @@ def test_http_401_maps_to_auth_expired(settings):
 
 def test_timeout_is_classified(settings):
     class TimeoutClient:
+        def stream(self, *_args, **_kwargs):
+            raise httpx.TimeoutException("slow")
+
         def post(self, *_args, **_kwargs):
             raise httpx.TimeoutException("slow")
 
@@ -155,6 +158,9 @@ def test_owned_client_fills_required_defaults_from_parameters(settings, monkeypa
         def post(self, url, headers=None, json=None, timeout=None):
             posts.append(json)
             return FakeResponse(200, {"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
+
+        def stream(self, method, url, headers=None, json=None, timeout=None):
+            return self.post(url, headers=headers, json=json, timeout=timeout)
 
         def close(self):
             pass
@@ -272,3 +278,97 @@ def test_parse_dify_payload_reads_nested_error_aliases():
     assert result["job_status"] == "failed"
     assert result["status"] == "failed"
     assert result["error"] == "账号未登录"
+
+
+def _workflow_finished_payload():
+    return {
+        "event": "workflow_finished",
+        "data": {
+            "id": "wf-1",
+            "status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"status":"succeeded"}',
+            },
+        },
+    }
+
+
+def _sse_http_response(events, status_code=200):
+    chunks = []
+    for item in events:
+        chunks.append("data: " + json.dumps(item, ensure_ascii=False) + "\n\n")
+    return httpx.Response(
+        status_code,
+        headers={"content-type": "text/event-stream"},
+        content="".join(chunks).encode("utf-8"),
+    )
+
+
+def test_streaming_skips_ping_and_text_chunk(settings):
+    posts: list[httpx.Request] = []
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(request)
+        return _sse_http_response(
+            [
+                {"event": "ping"},
+                {"event": "text_chunk", "data": {"text": "DIFY_SECRET_CHUNK"}},
+                {
+                    "event": "node_started",
+                    "data": {"node_id": "n1", "title": "开始", "index": 0, "node_type": "start"},
+                },
+                {
+                    "event": "node_finished",
+                    "data": {"node_id": "n1", "title": "开始", "index": 0, "status": "succeeded"},
+                },
+                _workflow_finished_payload(),
+            ]
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
+    client = DifyClient(live_settings, http_client=http)
+    result = client.run(
+        "douyin-lead-discovery",
+        {"account": "shop1"},
+        user="user-1",
+        on_event=seen.append,
+    )
+    body = json.loads(posts[0].content)
+    assert body["response_mode"] == "streaming"
+    assert result["ok"] is True
+    assert result["status"] == "succeeded"
+    assert [item["node_id"] for item in seen] == ["n1", "n1"]
+    assert seen[0]["status"] == "running"
+    assert seen[1]["status"] == "done"
+    assert all("DIFY_SECRET_CHUNK" not in json.dumps(item) for item in seen)
+
+
+def test_streaming_fail_closed_without_workflow_finished(settings):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _sse_http_response(
+            [
+                {
+                    "event": "node_started",
+                    "data": {"node_id": "n1", "title": "开始", "index": 0},
+                }
+            ]
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
+    client = DifyClient(live_settings, http_client=http)
+    result = client.run(
+        "douyin-lead-discovery",
+        {"account": "shop1"},
+        user="user-1",
+        on_event=seen.append,
+    )
+    assert result["ok"] is False
+    assert result["status"] == "failed"
+    assert "missing workflow_finished" in (result["error"] or "")
+    assert seen and seen[0]["node_id"] == "n1"

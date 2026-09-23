@@ -40,6 +40,9 @@ class ScriptedLLM:
     async def ainvoke(self, messages, **kwargs):
         return self.invoke(messages, **kwargs)
 
+    async def astream(self, messages, **kwargs):
+        yield self.invoke(messages, **kwargs)
+
 
 def ai_text(content: str) -> AIMessage:
     return AIMessage(content=content)
@@ -122,9 +125,10 @@ class FakeEmailClient:
 
 
 class FakeDifyClient:
-    def __init__(self, result: dict[str, Any] | None = None):
+    def __init__(self, result: dict[str, Any] | None = None, events: list[Any] | None = None):
         self.calls: list[dict[str, Any]] = []
         self.queue: list[Any] = []
+        self.events = list(events or [])
         self.result = result or {
             "ok": True,
             "name": "douyin-lead-discovery",
@@ -170,16 +174,26 @@ class FakeDifyClient:
     def enqueue(self, result: Any) -> None:
         self.queue.append(result)
 
-    def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None) -> dict[str, Any]:
+    def run(self, name: str, inputs: dict[str, Any], *, user: str | None = None, on_event=None) -> dict[str, Any]:
         self.calls.append({"name": name, "inputs": dict(inputs), "user": user})
+        events = list(self.events)
         if self.queue:
             item = self.queue.pop(0)
             if callable(item):
                 payload = item(name, inputs, user)
             else:
                 payload = dict(item)
+            queued_events = payload.pop("events", None)
+            if queued_events:
+                events = list(queued_events)
         else:
             payload = dict(self.result)
+            result_events = payload.pop("events", None)
+            if result_events:
+                events = list(result_events)
+        if on_event:
+            for event in events:
+                on_event(event)
         payload.setdefault("name", name)
         return payload
 

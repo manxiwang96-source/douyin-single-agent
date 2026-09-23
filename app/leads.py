@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from typing import Any
 from uuid import UUID
 
-from app.dify_client import extract_dify_error, normalize_job_status, parse_json_value
+from app.dify_client import compact_workflow_node, extract_dify_error, normalize_job_status, parse_json_value
 from app.repository import (
     DEFAULT_WORKFLOW_CODE,
     ENGAGE_COMMENT_STATUSES,
@@ -372,6 +372,50 @@ def summarize_lead_result(
         parts.append("no structured engage rows")
     return "; ".join(parts)
 
+
+def _coerce_node_index(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def upsert_workflow_node(nodes: dict[tuple[str, int], dict[str, Any]], order: list[tuple[str, int]], event: Any) -> list[dict[str, Any]]:
+    compact = compact_workflow_node(event)
+    if compact is None and isinstance(event, dict) and event.get("node_id"):
+        compact = {
+            "node_id": str(event.get("node_id") or ""),
+            "title": str(event.get("title") or event.get("label") or event.get("node_id") or ""),
+            "node_type": event.get("node_type"),
+            "index": _coerce_node_index(event.get("index")),
+            "status": str(event.get("status") or "running"),
+        }
+        if event.get("error") not in (None, ""):
+            compact["error"] = event.get("error")
+    if not compact or not compact.get("node_id"):
+        return [nodes[key] for key in order]
+    key = (str(compact["node_id"]), _coerce_node_index(compact.get("index")))
+    if key not in nodes:
+        order.append(key)
+    nodes[key] = compact
+    return [nodes[item] for item in order]
+
+
+def emit_dify_node_progress(nodes: list[dict[str, Any]]) -> None:
+    try:
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+    except Exception:
+        return
+    if writer is None:
+        return
+    try:
+        writer({"dify_nodes": list(nodes)})
+    except Exception:
+        return
+
+
 def run_discover_douyin_leads(
     *,
     settings,
@@ -455,7 +499,14 @@ def run_discover_douyin_leads(
         thread_id=thread_id,
         dify_app_id=getattr(settings, "dify_lead_app_id", None),
     )
-    result = dify_client.run(LEAD_WORKFLOW_CODE, inputs, user=str(user_id))
+    nodes_by_key: dict[tuple[str, int], dict[str, Any]] = {}
+    node_order: list[tuple[str, int]] = []
+
+    def on_event(event: Any) -> None:
+        snapshot = upsert_workflow_node(nodes_by_key, node_order, event)
+        emit_dify_node_progress(snapshot)
+
+    result = dify_client.run(LEAD_WORKFLOW_CODE, inputs, user=str(user_id), on_event=on_event)
     outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else {}
     dify_workflow_status = str(result.get("dify_workflow_status") or "unverified")
     workflow_ok = bool(result.get("workflow_ok"))
@@ -540,7 +591,7 @@ def run_discover_douyin_leads(
         error=error,
         delivery=delivery,
     )
-    return {
+    payload = {
         "ok": ok,
         "workflow_ok": workflow_ok,
         "delivery_ok": delivery_ok,
@@ -556,3 +607,6 @@ def run_discover_douyin_leads(
         "summary": summary,
         "written": written,
     }
+    if node_order:
+        payload["workflow_nodes"] = [nodes_by_key[key] for key in node_order]
+    return payload

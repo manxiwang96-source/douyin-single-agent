@@ -3,7 +3,7 @@
 ## Product
 This repository is the 抖音运营智能体 worker. It is independently runnable. It is not the supervisor and not classmate C's Dify. Locked product: `docs/modify/抖音运营智能体修改设计方案（1）.md`. Phased execution: `stage/README.md` and `stage/抖音运营智能体分阶段实施套餐.md`.
 
-User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (name/intro/avatar, one user many instances) -> click the 广场 card -> chat + read-only sidebar). Streamlit remains a transitional client. Capabilities are displayed, not checked. Opening a thread does not bump card `updated_at`.
+User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (name/intro/avatar, one user many instances) -> click the 广场 card -> chat + read-only sidebar). Streamlit is abandoned and not maintained. Capabilities are displayed, not checked. Opening a thread does not bump card `updated_at`.
 
 ## Layout
 - app/config.py: Settings from env; Dify + Douyin HTTP fields; `scheduler_enabled` default false; `dify_live_enabled` default false in code / `.env.example`; default `cors_origins` allow Streamlit `8501` and Vue `5173`; production validation; `public_config()` never returns secrets
@@ -14,8 +14,8 @@ User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (
 - app/repository.py: InMemoryBusinessRepository for default pytest
 - app/postgres_repository.py: psycopg production repository
 - app/auth.py: login_name + PBKDF2 password hash; Bearer session 7 days
-- app/dify_client.py: POST `{DIFY_BASE_URL}/workflows/run` with Bearer `DIFY_API_KEY`, `response_mode=blocking`; live POST only when `DIFY_LIVE_ENABLED=true` or an http_client is injected
-- app/leads.py: `discover_douyin_leads` inputs/dedup/writeback; `no_send=false` and `auto_login=true` hardcoded; fill C start-node defaults for platform/limit/channels/assess; sanitize `channels` to `comment`/`message`/`comment,message` (map `dm`/中文); drop keyword when `video_id` is present; empty local `DOUYIN_HTTP_BASE_URL` uses published `http://192.168.1.33:8765`; empty `DOUYIN_HTTP_API_TOKEN` omitted from stored inputs
+- app/dify_client.py: POST `{DIFY_BASE_URL}/workflows/run` with Bearer `DIFY_API_KEY`, `response_mode=streaming`; skip `ping`/`text_chunk`; fail closed without `workflow_finished`; live POST only when `DIFY_LIVE_ENABLED=true` or an http_client is injected
+- app/leads.py: `discover_douyin_leads` inputs/dedup/writeback; compact Dify node events via `on_event` + `get_stream_writer()`; persist compact `workflow_nodes` on the tool payload; `no_send=false` and `auto_login=true` hardcoded; fill C start-node defaults for platform/limit/channels/assess; sanitize `channels` to `comment`/`message`/`comment,message` (map `dm`/中文); drop keyword when `video_id` is present; empty local `DOUYIN_HTTP_BASE_URL` uses published `http://192.168.1.33:8765`; empty `DOUYIN_HTTP_API_TOKEN` omitted from stored inputs
 - app/mcp_client.py: FastMCP stdio via MultiServerMCPClient.get_tools(); McpFactsProvider for weekday/weather/temp
 - mcp_servers/personal.py: get_current_datetime + get_weather (Open-Meteo, default Guangzhou)
 - app/email_client.py: SMTP_SSL smtp.163.com:465
@@ -26,15 +26,16 @@ User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (
 - app/image_client.py: Gateway POST /images/generations
 - app/video_client.py: DashScope async video-synthesis + poll
 - app/tools.py: search_kb, generate_image/generate_video HITL, remember_fact/recall_facts/send_email, discover_douyin_leads, list_jobs/cancel_job, extra MCP tools; all in the same ToolNode
-- app/graph.py: chatbot + tools (ToolNode) + tools_condition; compile(checkpointer=..., store=memory_store)
+- app/graph.py: chatbot + tools (ToolNode) + tools_condition; topology unchanged; async chatbot prefers model `astream` and falls back to `ainvoke`; compile(checkpointer=..., store=memory_store)
 - app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store and InMemoryBusinessRepository; default pytest injects FakeDifyClient
-- app/main.py: FastAPI factory create_app(runtime=None); Bearer plaza/auth/open/sidebar; ainvoke for message/resume
+- app/main.py: FastAPI factory create_app(runtime=None); Bearer plaza/auth/open/sidebar; chat `messages`/`resume` return SSE via `EventSourceResponse(..., ping=0)`; Jobs / morning brief still `ainvoke`
+- app/chat_sse.py: `stream_chat_events()` maps LangGraph `astream(..., stream_mode=["updates","messages","custom"], version="v2")` to SSE events `progress`/`token`/`thread`/`error` only
 - app/prompts.py: identity is 抖音运营助手; must say 会真实发送 then immediately call `discover_douyin_leads`; do not ask for keyword when `video_id` is present; channels stay `comment,message`; no Xiaohongshu note template
 - app/serialize.py: thread JSON with media URLs, review_media interrupt, and read-only derived `progress`
-- app/thread_progress.py: derive current-round sidebar progress from checkpoint messages, `next`, and `review_media` interrupt
+- app/thread_progress.py: derive current-round sidebar progress from checkpoint messages, `next`, and `review_media` interrupt; Dify children overlay/replay; parent tool `failed` when `ok=false` or status in failed/timeout/auth_expired
 - ui/view_model.py: plaza cards, readonly sidebar, auth_gate so a thread exists only after login and /open
-- ui/streamlit_app.py: Streamlit v1 client over existing HTTP; token in session_state as Bearer; transitional, not deleted
-- frontend/: Vue 3 + Vite plaza module; routes `/login`, `/agents`, `/agents/:agentInstanceId`; Bearer in localStorage; CSS prefix `agent-`
+- ui/streamlit_app.py: Streamlit v1 client over existing HTTP; abandoned and not maintained, not deleted
+- frontend/: Vue 3 + Vite plaza module; routes `/login`, `/agents`, `/agents/:agentInstanceId`; Bearer in localStorage; CSS prefix `agent-`; chat uses `fetch` + `AbortController` SSE, not EventSource; Vite `/v1` proxy `timeout: 0` / `proxyTimeout: 0`
 - knowledge/douyin_ops_demo/*.md: per-instance demo KB
 - tests/: mocked suite; optional RUN_LIVE_API=1 / RUN_LIVE_ASSISTANT=1 leftovers; Douyin delivery gate RUN_LIVE_DOUYIN=1 in tests/test_live_douyin.py
 
@@ -44,7 +45,7 @@ START -> chatbot -> tools_condition -> tools -> chatbot
 Nodes remain only chatbot and tools. Dify is a ToolNode tool, not MCP and not a new node.
 Media tools interrupt inside ToolNode. Resume with Command(resume=...).
 parallel_tool_calls=False.
-ainvoke configurable carries thread_id / user_id / agent_instance_id / allowed_workflow_codes.
+Graph configurable still carries thread_id / user_id / agent_instance_id / allowed_workflow_codes. Chat HTTP uses graph `astream`; Jobs / morning brief still use `ainvoke`.
 
 ## Memory
 - Short-term: production PostgresSaver; tests InMemorySaver
@@ -58,15 +59,15 @@ ainvoke configurable carries thread_id / user_id / agent_instance_id / allowed_w
 ## HTTP entry
 - Auth: POST /v1/auth/register|login|logout, GET /v1/me
 - Plaza: GET/POST /v1/agent-instances, PATCH /v1/agent-instances/{id}, DELETE /v1/agent-instances/{id}, POST /v1/agent-instances/{id}/open, GET sidebar/avatar
-- Chat: GET /v1/threads/{id}, POST /v1/threads/{id}/messages, POST /v1/threads/{id}/resume
+- Chat: GET /v1/threads/{id} remains JSON; POST /v1/threads/{id}/messages and POST /v1/threads/{id}/resume success path is SSE only (`progress`/`token`/`thread`/`error`); precheck 401/404/409 stay JSON; no parallel JSON chat endpoint
 - Jobs: POST /v1/jobs/{job_id}/disable, POST /v1/job-runs/{run_id}/cancel
 - Leftover: POST /v1/assistant/jobs/run
 - Old unauthenticated POST /v1/threads is rejected; use /open after login
-- Vue `frontend/` is the plaza module client; Streamlit remains the transitional stand-in; FastAPI Bearer JSON is the contract
+- Vue `frontend/` is the current main client; Streamlit is abandoned and not maintained; FastAPI Bearer JSON remains the plaza/auth/thread-read contract, while chat send/resume is `text/event-stream`
 
 ## Dify
 v1 has one product tool `discover_douyin_leads` bound to published workflow `douyin-lead-discovery`.
-Transport: POST `{DIFY_BASE_URL}/workflows/run` + `Authorization: Bearer {DIFY_API_KEY}`.
+Transport: POST `{DIFY_BASE_URL}/workflows/run` + `Authorization: Bearer {DIFY_API_KEY}` with `response_mode=streaming`. Node `started`/`finished` events are compacted and streamed; Dify `text_chunk` is never forwarded to the Vue chat SSE.
 Server forces `no_send=false` (true-send) in both `build_dify_inputs` and `DifyClient.run`, plus `auto_login=true`. This is not an env switch; C's start-node default `true` is never sent.
 Published start-node required defaults are filled by the worker when the model omits them: `platform=douyin`, `limit=20`, `channels=comment,message`, `assess=true`. Invalid model `channels` such as `comment,dm` or 中文「评论、私信」are mapped or replaced with `comment,message`. If `video_id` is present, keyword is omitted from stored inputs.
 C's `no_send` / `auto_login` / `assess` are select options `true`/`false`; DifyClient stringifies JSON booleans only on the HTTP body. `workflow_runs.inputs` still stores Python bools.
@@ -81,7 +82,7 @@ v1 does not review outbound comments/DMs.
 ## Runtime processes
 1. uvicorn app.main:create_app --factory
 2. streamlit run ui/streamlit_app.py (transitional client)
-3. cd frontend && npm run dev (Vue plaza module on 5173, proxy `/v1` to 8000)
+3. cd frontend && npm run dev (Vue plaza module on 5173, proxy `/v1` to 8000 with `timeout: 0` / `proxyTimeout: 0` so SSE is not cut)
 4. scheduler_enabled stays false unless explicitly turned on; Douyin 08:00 scan is not in this worker yet
 
 ## Delivery
@@ -110,7 +111,15 @@ Live true-send must stagger with C's Feishu bot to avoid double send.
 
 ## Current-round task progress (2026-09-23)
 - `serialize_thread()` keeps bubble filtering unchanged and only adds a derived `progress` object: `round_id`, `phase` (`idle|thinking|running|waiting_review|composing|done`), and ordered `steps`.
-- `round_id` is the last HumanMessage `client_message_id`, else that message id. No user message yields idle empty steps. Named LangGraph tools stay in the round history; `discover_douyin_leads` is shown as 正在运行「抖音线索发现与触达」 with no Dify internal nodes.
+- `round_id` is the last HumanMessage `client_message_id`, else that message id. No user message yields idle empty steps. Named LangGraph tools stay in the round history; `discover_douyin_leads` is shown as 正在运行「抖音线索发现与触达」, with nested `kind=dify_node` children (`id` like `dify:{node_id}:{index}`) when Dify emits node events.
 - HITL `review_media` is the same round: Approve keeps the panel and can update the media step back to running. Skip freezes the round as done (`已跳过「生成图片/视频」`) and never adds 正在整理回复, even if `next` still contains `chatbot`.
-- History remains after the final assistant bubble; the next user message starts a new `round_id` and resets the panel. Vue polls `GET /v1/threads/{id}` while sending and must not `applyThread` those snapshots onto chat bubbles. Before the first tool checkpoint, the client shows local 正在思考.
+- History remains after the final assistant bubble; the next user message starts a new `round_id` and resets the panel. Vue no longer polls `GET /v1/threads/{id}` while sending; live `progress` SSE updates the task bar, and `applyThread` waits for the final `thread` event. Before the first tool checkpoint, the client shows local 正在思考.
 
+## Chat SSE streaming and Dify node progress (2026-09-24)
+- Success path for `POST /v1/threads/{id}/messages` and `POST /v1/threads/{id}/resume` is `text/event-stream` only. Events are only `progress`, `token`, `thread`, and `error`. There is no Accept negotiation and no parallel JSON chat endpoint.
+- `app/chat_sse.py` consumes LangGraph `astream(..., stream_mode=["updates","messages","custom"], version="v2")`: `updates` and live `custom` snapshots emit `progress`; chatbot `messages` chunks without tool calls emit `token`; HITL/`GraphInterrupt` and normal end emit `thread`; unexpected exceptions emit `error`.
+- Token deltas come from chatbot visible text only (`langgraph_node=="chatbot"`, no `tool_calls` / `tool_call_chunks`). Dify `text_chunk` is skipped in `DifyClient` and is never an SSE event name.
+- `discover_douyin_leads` passes `on_event` into streaming Dify, compact-upserts nodes, writes `{dify_nodes: ...}` through `get_stream_writer()`, and stores compact `workflow_nodes` on the tool payload so GET thread can replay children without rerunning the stream.
+- Vue `postMessage` / `resumeThread` use `fetch` + `AbortController` with `CHAT_TIMEOUT_MS`, Bearer, and `Accept: text/event-stream`. `progress` updates the sidebar; `token` appends the pending assistant bubble; `phase=running` clears any early draft back to 「正在回复」; `thread` then `applyThread`.
+- Sidebar children nest under the parent tool row: running spinner, done ✓, failed ✕. Layout remains desktop sidebar 400px and chat column 860px.
+- Jobs / morning brief stay on `ainvoke`. Streamlit is abandoned and not maintained.

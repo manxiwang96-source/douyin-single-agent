@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sse_starlette.sse import EventSourceResponse
 from langchain_core.messages import HumanMessage
 from app.message_metadata import new_message_metadata
 from langgraph.types import Command
@@ -24,6 +25,7 @@ from app.auth import (
 )
 from app.avatars import AvatarError, avatar_root, resolve_avatar_file, save_avatar
 from app.config import Settings
+from app.chat_sse import stream_chat_events
 from app.graph import build_invoke_config
 from app.job_control import JobAccessDenied, cancel_job_run, disable_job, parse_job_uuid
 from app.jobs import arun_hydrate, arun_morning_brief, acatch_up_jobs
@@ -164,7 +166,7 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             raise _http_error(404, "thread not found")
         return record
 
-    async def _arun(thread_id: str, payload) -> dict[str, Any]:
+    async def _arun(thread_id: str, payload) -> EventSourceResponse:
         thread = repo.get_app_thread(thread_id)
         if thread is None:
             raise _http_error(404, "thread not found")
@@ -177,8 +179,11 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             allowed_workflow_codes=allowed,
             assistant_timezone=runtime.settings.assistant_timezone,
         )
-        await runtime.graph.ainvoke(payload, config)
-        return serialize_thread(runtime, thread_id)
+        return EventSourceResponse(
+            stream_chat_events(runtime, thread_id, payload, config),
+            media_type="text/event-stream",
+            ping=0,
+        )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -366,7 +371,7 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         thread_id: str,
         body: MessageIn,
         user: UserRecord = Depends(_auth_user),
-    ) -> dict[str, Any]:
+    ) -> EventSourceResponse:
         _owned_thread(user, thread_id)
         current = serialize_thread(runtime, thread_id)
         if current.get("status") == "interrupted":
@@ -387,7 +392,7 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         thread_id: str,
         body: ResumeIn,
         user: UserRecord = Depends(_auth_user),
-    ) -> dict[str, Any]:
+    ) -> EventSourceResponse:
         _owned_thread(user, thread_id)
         current = serialize_thread(runtime, thread_id)
         if current.get("status") != "interrupted":

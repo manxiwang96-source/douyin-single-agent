@@ -74,7 +74,7 @@ export function optimisticMessages(content: string, clientMessageId: string, cre
     { role: "user", content, previews: [], clientMessageId, createdAt, status: "normal" },
     {
       role: "assistant",
-      content: "正在回复",
+      content: PENDING_REPLY_TEXT,
       previews: [],
       clientMessageId,
       requestId: clientMessageId,
@@ -82,6 +82,30 @@ export function optimisticMessages(content: string, clientMessageId: string, cre
       status: "pending",
     },
   ];
+}
+
+
+function matchesPending(item: ChatMessage, requestId?: string): boolean {
+  if (!item.pending) return false;
+  if (!requestId) return true;
+  return item.requestId === requestId || item.clientMessageId === requestId;
+}
+
+export function appendPendingToken(messages: ChatMessage[], requestId: string, delta: string): ChatMessage[] {
+  if (!delta) return [...messages];
+  return messages.map((item) => {
+    if (!matchesPending(item, requestId)) return item;
+    const current = item.content || "";
+    const next = !current || current === PENDING_REPLY_TEXT ? delta : `${current}${delta}`;
+    return { ...item, content: next };
+  });
+}
+
+export function clearPendingDraft(messages: ChatMessage[], requestId?: string): ChatMessage[] {
+  return messages.map((item) => {
+    if (!matchesPending(item, requestId)) return item;
+    return { ...item, content: PENDING_REPLY_TEXT };
+  });
 }
 
 export function withPendingUser(messages: ChatMessage[], pending: { content: string; clientMessageId: string; createdAt: string } | null | undefined): ChatMessage[] {
@@ -184,8 +208,9 @@ export function skipResumePayload(): Record<string, string> {
   return { action: "skip" };
 }
 
-export type TaskStepStatus = "done" | "running" | "waiting";
-export type TaskStepKind = "thinking" | "tool" | "review" | "composing";
+export const PENDING_REPLY_TEXT = "正在回复";
+export type TaskStepStatus = "done" | "running" | "waiting" | "failed";
+export type TaskStepKind = "thinking" | "tool" | "review" | "composing" | "dify_node";
 export type TaskPhase = "idle" | "thinking" | "running" | "waiting_review" | "composing" | "done";
 
 export type TaskStep = {
@@ -195,6 +220,7 @@ export type TaskStep = {
   label: string;
   status: TaskStepStatus;
   spin: boolean;
+  children?: TaskStep[];
 };
 
 export type TaskProgress = {
@@ -225,15 +251,25 @@ export function localThinkingProgress(roundId: string): TaskProgress {
 }
 
 function parseStep(item: Record<string, unknown>): TaskStep {
-  const status = String(item.status || "running") as TaskStepStatus;
-  return {
+  const allowedStatus: TaskStepStatus[] = ["done", "running", "waiting", "failed"];
+  const rawStatus = String(item.status || "");
+  const status = allowedStatus.includes(rawStatus as TaskStepStatus) ? (rawStatus as TaskStepStatus) : "waiting";
+  const allowedKind: TaskStepKind[] = ["thinking", "tool", "review", "composing", "dify_node"];
+  const rawKind = String(item.kind || "tool");
+  const kind = allowedKind.includes(rawKind as TaskStepKind) ? (rawKind as TaskStepKind) : "tool";
+  const nested = Array.isArray(item.children)
+    ? (item.children as Array<Record<string, unknown>>).map(parseStep).filter((step) => step.id || step.label)
+    : [];
+  const step: TaskStep = {
     id: String(item.id || ""),
-    kind: String(item.kind || "tool") as TaskStepKind,
+    kind,
     tool: item.tool == null || item.tool === "" ? null : String(item.tool),
     label: String(item.label || ""),
     status,
     spin: status === "running",
   };
+  if (nested.length) step.children = nested;
+  return step;
 }
 
 export function threadProgress(thread: Record<string, unknown> | null | undefined): TaskProgress {

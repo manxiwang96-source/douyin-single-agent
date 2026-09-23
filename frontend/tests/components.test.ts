@@ -295,6 +295,49 @@ describe("vue components", () => {
     expect(wrapper.get(".agent-sidebar-catalog").text()).toContain("规划抖音运营并触达线索");
   });
 
+  it("nests Dify children under the parent step with running done and failed marks", () => {
+    const wrapper = mount(ChatSidebar, {
+      props: {
+        sidebar: sidebarView({
+          capability_description: "规划抖音运营并触达线索",
+          development_notes: "能力只展示不勾选",
+          agent_mode_label: "单智能体模式",
+          knowledge_documents: [],
+          workflows: [],
+          tools: [],
+        }),
+        progress: {
+          round_id: "client-1",
+          phase: "running",
+          steps: [
+            { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+            {
+              id: "tool:discover_douyin_leads:c1",
+              kind: "tool",
+              tool: "discover_douyin_leads",
+              label: "正在运行「抖音线索发现与触达」",
+              status: "running",
+              spin: true,
+              children: [
+                { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
+                { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "running", spin: true },
+                { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "失败节点", status: "failed", spin: false },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(wrapper.findAll(".agent-task-steps > li")).toHaveLength(2);
+    expect(wrapper.find(".agent-task-steps > li > .agent-task-children").exists()).toBe(true);
+    expect(wrapper.get(".agent-task-children").text()).toContain("开始");
+    expect(wrapper.get(".agent-task-children").text()).toContain("请求抖音");
+    expect(wrapper.get(".agent-task-children").text()).toContain("失败节点");
+    expect(wrapper.get(".agent-task-children .agent-task-check").text()).toBe("✓");
+    expect(wrapper.find(".agent-task-children .agent-task-spin").exists()).toBe(true);
+    expect(wrapper.get(".agent-task-children .agent-task-fail").text()).toBe("✕");
+  });
+
   it("shows an empty-task placeholder when there are no steps", () => {
     const wrapper = mount(ChatSidebar, {
       props: {

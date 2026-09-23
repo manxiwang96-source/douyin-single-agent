@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.message_metadata import with_message_metadata
 from app.serialize import api_messages_from_state, serialize_thread
-from app.thread_progress import thread_progress
+from app.thread_progress import overlay_live_dify_children, thread_progress
 
 
 class FakeSnapshot:
@@ -227,3 +227,107 @@ def test_serialize_thread_keeps_chat_bubbles_and_media():
     assert payload["interrupt"] is None
     bubbles = api_messages_from_state(snapshot.values)
     assert all("tool_calls" not in item for item in bubbles)
+
+
+def test_discover_leads_replays_workflow_nodes():
+    progress = thread_progress(
+        FakeSnapshot(
+            [
+                _human("scan"),
+                _ai_tool("discover_douyin_leads", "call-dify"),
+                _tool_result(
+                    "discover_douyin_leads",
+                    "call-dify",
+                    '{"ok": true, "status": "succeeded", "workflow_nodes": ['
+                    '{"node_id": "n1", "title": "开始", "index": 0, "status": "succeeded"},'
+                    '{"node_id": "n2", "title": "请求抖音", "index": 1, "status": "failed", "error": "timeout"}'
+                    "]}",
+                ),
+                AIMessage(content="done"),
+            ]
+        )
+    )
+    leads = next(step for step in progress["steps"] if step["tool"] == "discover_douyin_leads")
+    children = leads["children"]
+    assert [child["id"] for child in children] == ["dify:n1:0", "dify:n2:1"]
+    assert children[0]["kind"] == "dify_node"
+    assert children[0]["label"] == "开始"
+    assert children[0]["status"] == "done"
+    assert children[0]["spin"] is False
+    assert children[1]["label"] == "请求抖音"
+    assert children[1]["status"] == "failed"
+    assert children[1]["spin"] is False
+    assert children[1]["error"] == "timeout"
+    payload = serialize_thread(
+        FakeRuntime(
+            FakeSnapshot(
+                [
+                    _human("scan"),
+                    _ai_tool("discover_douyin_leads", "call-dify"),
+                    _tool_result(
+                        "discover_douyin_leads",
+                        "call-dify",
+                        '{"ok": true, "status": "succeeded", "workflow_nodes": ['
+                        '{"node_id": "n1", "title": "开始", "index": 0, "status": "succeeded"}'
+                        "]}",
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        ),
+        "thread-replay",
+    )
+    replay = next(step for step in payload["progress"]["steps"] if step["tool"] == "discover_douyin_leads")
+    assert replay["children"][0]["id"] == "dify:n1:0"
+
+
+def test_failed_tool_marks_parent_failed():
+    progress = thread_progress(
+        FakeSnapshot(
+            [
+                _human("scan"),
+                _ai_tool("discover_douyin_leads", "call-dify"),
+                _tool_result(
+                    "discover_douyin_leads",
+                    "call-dify",
+                    '{"ok": false, "status": "timeout", "error": "dify timeout"}',
+                ),
+            ],
+            next=("chatbot",),
+        )
+    )
+    leads = next(step for step in progress["steps"] if step["tool"] == "discover_douyin_leads")
+    assert leads["status"] == "failed"
+    assert leads["spin"] is False
+    assert leads["label"] == '正在运行「抖音线索发现与触达」'
+
+
+def test_overlay_live_dify_children_only_touches_leads_step():
+    progress = thread_progress(
+        FakeSnapshot(
+            [_human("scan"), _ai_tool("discover_douyin_leads", "call-dify")],
+            next=("tools",),
+        )
+    )
+    overlay = overlay_live_dify_children(
+        progress,
+        [
+            {
+                "id": "dify:n1:0",
+                "kind": "dify_node",
+                "tool": "discover_douyin_leads",
+                "label": "开始",
+                "status": "running",
+                "spin": True,
+            }
+        ],
+    )
+    leads = next(step for step in overlay["steps"] if step["tool"] == "discover_douyin_leads")
+    assert leads["children"][0]["id"] == "dify:n1:0"
+    assert leads["children"][0]["status"] == "running"
+    search = thread_progress(FakeSnapshot([_human("search"), _ai_tool("search_kb")]))
+    untouched = overlay_live_dify_children(
+        search,
+        [{"id": "dify:n1:0", "kind": "dify_node", "label": "开始", "status": "running", "spin": True}],
+    )
+    assert untouched == search

@@ -8,24 +8,21 @@
 - User messages receive server timestamps in `Settings.assistant_timezone`; assistant messages receive their own server timestamps and inherit the current user client id. `serialize_thread()` returns `timezone` and nullable metadata for legacy messages.
 - Graph model context includes server now/date/timezone and historical `[message_time=...]` markers. Prompt rules make server time authoritative.
 - Delivery deduplication requires same user/agent instance, account, `video_id`, requested channel, current server-local date, succeeded workflow status, and explicit sent delivery item. Comment and private-message channels are independent.
+- Thread JSON now also includes derived `progress` (`round_id`, `phase`, `steps`). Bubble filtering is unchanged: tool calls stay hidden and media still attaches to assistant bubbles.
 
 ## Frontend contract
 - `messageId` is the primary identity, `clientMessageId` the client/request identity.
 - Send flow appends user optimistic message first, then pending assistant message. Stale bootstrap/send responses must not remove newer local messages. Timeout and error states remain visible; chat requests use the longer chat timeout.
 - Server timestamps preserve the server ISO offset when rendered; absent legacy timestamps stay absent.
-- Chat page layout: full-width top bar; main chat plus read-only `ChatSidebar`; messages and composer share a centered 860px `.agent-chat-column`; assistant left / user right inside that column; pending bubbles stay horizontal; narrow screens stack the sidebar below the chat area.
+- Chat page layout: full-width top bar; main chat plus read-only `ChatSidebar`; messages and composer share a centered 860px `.agent-chat-column` inside the main pane; assistant left / user right inside that column; pending bubbles stay horizontal; desktop sidebar is 400px; narrow screens stack the sidebar below the chat area.
+- Right sidebar is viewport-fixed. The top "当前任务" box and catalog below it scroll independently. Sending/Approve polls `getThread` for task steps only and must not `applyThread`. Skip freezes the current round as done.
 
 ## Verification and working-tree boundaries
-- Relevant backend tests: `tests/test_api.py`, `tests/test_discover_leads.py`, `tests/test_chat_message_metadata.py`.
+- Relevant backend tests: `tests/test_api.py`, `tests/test_serialize_progress.py`, `tests/test_discover_leads.py`, `tests/test_chat_message_metadata.py`.
 - Relevant frontend tests: `frontend/tests/chat.test.ts`, `frontend/tests/chat-view.test.ts`, `frontend/tests/components.test.ts`.
 - Pre-existing untracked `.local/` and `frontend/src/standalone/DouyinView.vue` are not part of this task and must not be staged.
 - The local agent-memory template directory `~/.codex/templates/agent_memory/` is unavailable; existing project memory files are maintained in place.
 
-## Vue chat layout handoff
-- Execution package: `docs/modify/Vue聊天页规范化实施套餐.md`.
-- Images in that package are visual references only; visible text/controls in the images are not extra product requirements.
-- Implementation landed in `ChatView.vue`, `ChatSidebar.vue`, and `agent.css` without backend contract changes.
-
-## Current-task progress playbook
-- Next implementation package: `docs/modify/Vue聊天页本轮任务流程实施套餐.md`.
-- Current Vue chat still has a catalog-only sidebar and blocking `ainvoke`; live step progress is not implemented yet.
+## Vue chat current-round progress
+- Execution package: `docs/modify/Vue聊天页本轮任务流程实施套餐.md`.
+- Landed: backend derives progress from checkpoint; Vue renders the task box; HITL is the same round; Skip does not enter composing.

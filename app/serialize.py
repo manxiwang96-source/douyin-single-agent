@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.graph import interrupt_payload
 from app.message_metadata import message_metadata
+from app.thread_progress import thread_progress
 
 
 def _media_from_tool_content(content: str) -> dict[str, Any] | None:
@@ -92,4 +93,5 @@ def serialize_thread(runtime, thread_id: str) -> dict[str, Any]:
         },
         "last_image_path": values.get("last_image_path"),
         "last_video_path": values.get("last_video_path"),
+        "progress": thread_progress(snapshot),
     }

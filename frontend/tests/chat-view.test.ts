@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { mount, flushPromises } from "@vue/test-utils";
+import { enableAutoUnmount, mount, flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatView from "../src/views/ChatView.vue";
+
+enableAutoUnmount(afterEach);
 
 const openAgentInstance = vi.fn();
 const getAgentSidebar = vi.fn();
@@ -53,6 +55,7 @@ describe("ChatView HITL", () => {
       tools: [{ name: "discover_douyin_leads", display_name: "抖音线索发现" }],
     });
     fetchAuthBlob.mockRejectedValue(new Error("no avatar"));
+    getThread.mockReset();
     postMessage.mockReset();
     resumeThread.mockReset();
   });
@@ -208,8 +211,14 @@ describe("ChatView HITL", () => {
     expect(wrapper.find(".agent-chat-main > form.agent-composer").exists()).toBe(false);
     expect(wrapper.find(".agent-page > form.agent-composer").exists()).toBe(false);
     expect(wrapper.find(".agent-empty").exists()).toBe(true);
+    expect(wrapper.text()).toContain("当前任务");
+    expect(wrapper.text()).toContain("暂无进行中的任务");
     expect(agentCss).toMatch(/\.agent-chat-column\s*\{[\s\S]*max-width:\s*860px;/);
-    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*320px;/);
+    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*400px;/);
+    expect(agentCss).toMatch(/\.agent-chat\s*\{[\s\S]*height:\s*100vh;[\s\S]*overflow:\s*hidden;/);
+    expect(agentCss).toMatch(/\.agent-sidebar\s*\{[\s\S]*overflow:\s*hidden;/);
+    expect(agentCss).toMatch(/\.agent-task-progress\s*\{[\s\S]*overflow-y:\s*auto;/);
+    expect(agentCss).toMatch(/\.agent-sidebar-catalog\s*\{[\s\S]*overflow-y:\s*auto;/);
     expect(agentCss).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
   });
 
@@ -273,6 +282,153 @@ describe("ChatView HITL", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("第二条回复");
     expect(wrapper.text()).not.toContain("第一条回复");
+  });
+
+  it("shows local thinking in the sidebar while the main bubble stays pending", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockImplementation(() => new Promise(() => undefined));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const pollCallsBeforeSend = getThread.mock.calls.length;
+    getThread.mockResolvedValue({
+      status: "idle",
+      interrupt: null,
+      messages: [{ role: "assistant", content: "POLL_WIPE" }],
+      progress: { round_id: null, phase: "idle", steps: [] },
+    });
+    await wrapper.get(".agent-composer textarea").setValue("你好");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在思考");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
+    expect(wrapper.text()).not.toContain("POLL_WIPE");
+    expect(getThread.mock.calls.length).toBeGreaterThan(pollCallsBeforeSend);
+  });
+
+  it("keeps task history after the final reply and resets only on the next user message", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockImplementation(async (_threadId: string, content: string, clientMessageId: string) => ({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content, message_id: "u1", client_message_id: clientMessageId },
+        { role: "assistant", content: "检索完成", message_id: "a1", client_message_id: clientMessageId },
+      ],
+      progress: {
+        round_id: clientMessageId,
+        phase: "done",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "tool:search_kb:c1", kind: "tool", tool: "search_kb", label: "知识库检索", status: "done", spin: false },
+          { id: "composing", kind: "composing", tool: null, label: "正在整理回复", status: "done", spin: false },
+        ],
+      },
+    }));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("搜知识库");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
+    expect(wrapper.text()).toContain("检索完成");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("知识库检索");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在整理回复");
+    postMessage.mockImplementation(() => new Promise(() => undefined));
+    await wrapper.get(".agent-composer textarea").setValue("下一问");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在思考");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("知识库检索");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("正在整理回复");
+  });
+
+  it("does not reset the task panel after Approve", async () => {
+    getThread.mockResolvedValue({
+      status: "interrupted",
+      interrupt: {
+        type: "review_media",
+        tool: "generate_image",
+        prompt: "bottle",
+        params: {},
+      },
+      messages: [{ role: "user", content: "生图", client_message_id: "client-1" }],
+      progress: {
+        round_id: "client-1",
+        phase: "waiting_review",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "tool:generate_image:c1", kind: "review", tool: "generate_image", label: "等待审核「生成图片」", status: "waiting", spin: false },
+        ],
+      },
+    });
+    resumeThread.mockImplementation(() => new Promise(() => undefined));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.get(".agent-task-progress").text()).toContain("等待审核「生成图片」");
+    expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
+    await wrapper.get(".agent-hitl button.agent-btn").trigger("click");
+    await flushPromises();
+    expect(wrapper.get(".agent-task-progress").text()).toContain("等待审核「生成图片」");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
+    expect(wrapper.findAll(".agent-task-steps li")).toHaveLength(2);
+  });
+
+  it("marks Skip as done immediately and ignores later composing progress", async () => {
+    getThread.mockResolvedValue({
+      status: "interrupted",
+      interrupt: {
+        type: "review_media",
+        tool: "generate_image",
+        prompt: "bottle",
+        params: {},
+      },
+      messages: [{ role: "user", content: "生图", client_message_id: "client-1" }],
+      progress: {
+        round_id: "client-1",
+        phase: "waiting_review",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "tool:generate_image:c1", kind: "review", tool: "generate_image", label: "等待审核「生成图片」", status: "waiting", spin: false },
+        ],
+      },
+    });
+    let resolveResume: (value: unknown) => void = () => undefined;
+    resumeThread.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveResume = resolve;
+        }),
+    );
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-hitl button.agent-btn-ghost").trigger("click");
+    await flushPromises();
+    expect(wrapper.get(".agent-task-progress").text()).toContain("已跳过「生成图片」");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("正在整理回复");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("等待审核「生成图片」");
+    resolveResume({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "生图", client_message_id: "client-1" },
+        { role: "assistant", content: "已跳过生图", client_message_id: "client-1" },
+      ],
+      progress: {
+        round_id: "client-1",
+        phase: "composing",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "tool:generate_image:c1", kind: "tool", tool: "generate_image", label: "正在生成图片", status: "done", spin: false },
+          { id: "composing", kind: "composing", tool: null, label: "正在整理回复", status: "running", spin: true },
+        ],
+      },
+    });
+    await flushPromises();
+    expect(wrapper.get(".agent-task-progress").text()).toContain("已跳过「生成图片」");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("正在整理回复");
+    expect(wrapper.text()).toContain("已跳过生图");
   });
 
 });

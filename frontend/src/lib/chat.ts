@@ -183,3 +183,119 @@ export function approveResumePayload(prompt: string, params: Record<string, unkn
 export function skipResumePayload(): Record<string, string> {
   return { action: "skip" };
 }
+
+export type TaskStepStatus = "done" | "running" | "waiting";
+export type TaskStepKind = "thinking" | "tool" | "review" | "composing";
+export type TaskPhase = "idle" | "thinking" | "running" | "waiting_review" | "composing" | "done";
+
+export type TaskStep = {
+  id: string;
+  kind: TaskStepKind;
+  tool: string | null;
+  label: string;
+  status: TaskStepStatus;
+  spin: boolean;
+};
+
+export type TaskProgress = {
+  round_id: string | null;
+  phase: TaskPhase;
+  steps: TaskStep[];
+};
+
+export function emptyTaskProgress(): TaskProgress {
+  return { round_id: null, phase: "idle", steps: [] };
+}
+
+export function localThinkingProgress(roundId: string): TaskProgress {
+  return {
+    round_id: roundId,
+    phase: "thinking",
+    steps: [
+      {
+        id: "thinking",
+        kind: "thinking",
+        tool: null,
+        label: '正在思考',
+        status: "running",
+        spin: true,
+      },
+    ],
+  };
+}
+
+function parseStep(item: Record<string, unknown>): TaskStep {
+  const status = String(item.status || "running") as TaskStepStatus;
+  return {
+    id: String(item.id || ""),
+    kind: String(item.kind || "tool") as TaskStepKind,
+    tool: item.tool == null || item.tool === "" ? null : String(item.tool),
+    label: String(item.label || ""),
+    status,
+    spin: status === "running",
+  };
+}
+
+export function threadProgress(thread: Record<string, unknown> | null | undefined): TaskProgress {
+  const raw = (thread?.progress as Record<string, unknown> | undefined) || undefined;
+  if (!raw || typeof raw !== "object") return emptyTaskProgress();
+  const phaseRaw = String(raw.phase || "idle") as TaskPhase;
+  const allowed: TaskPhase[] = ["idle", "thinking", "running", "waiting_review", "composing", "done"];
+  const phase = allowed.includes(phaseRaw) ? phaseRaw : "idle";
+  const steps = Array.isArray(raw.steps)
+    ? (raw.steps as Array<Record<string, unknown>>).map(parseStep).filter((step) => step.id || step.label)
+    : [];
+  const roundId = raw.round_id == null || raw.round_id === "" ? null : String(raw.round_id);
+  return { round_id: roundId, phase, steps };
+}
+
+export function skippedMediaLabel(tool: unknown): string {
+  return tool === "generate_video" ? '已跳过「生成视频」' : '已跳过「生成图片」';
+}
+
+export function freezeSkipProgress(progress: TaskProgress, tool?: unknown): TaskProgress {
+  const label = skippedMediaLabel(tool);
+  const toolName = typeof tool === "string" && tool ? tool : "generate_image";
+  let found = false;
+  const steps = progress.steps
+    .filter((step) => step.kind !== "composing")
+    .map((step) => {
+      const isTarget =
+        step.status === "waiting" ||
+        step.kind === "review" ||
+        step.tool === toolName ||
+        ((step.tool === "generate_image" || step.tool === "generate_video") && step.status !== "done");
+      if (!isTarget) {
+        return { ...step, status: step.status === "running" ? ("done" as const) : step.status, spin: false };
+      }
+      found = true;
+      return { ...step, kind: "review" as const, label, status: "done" as const, spin: false };
+    });
+  if (!found) {
+    steps.push({
+      id: `review:${toolName}`,
+      kind: "review",
+      tool: toolName,
+      label,
+      status: "done",
+      spin: false,
+    });
+  }
+  return { round_id: progress.round_id, phase: "done", steps };
+}
+
+export function shouldApplyTaskProgress(
+  incoming: TaskProgress,
+  options: { activeRoundId: string | null; skipFrozen: boolean },
+): boolean {
+  if (options.skipFrozen && incoming.phase !== "done") return false;
+  if (options.activeRoundId) {
+    if (incoming.round_id && incoming.round_id !== options.activeRoundId) return false;
+    if (!incoming.round_id && (incoming.phase === "idle" || incoming.steps.length === 0)) return false;
+  }
+  return true;
+}
+
+export function isSkippedProgress(progress: TaskProgress): boolean {
+  return progress.phase === "done" && progress.steps.some((step) => step.label.startsWith('已跳过'));
+}

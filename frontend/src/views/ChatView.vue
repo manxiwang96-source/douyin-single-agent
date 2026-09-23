@@ -8,15 +8,21 @@ import HitlCard from "../components/HitlCard.vue";
 import {
   approveResumePayload,
   buildChatView,
+  freezeSkipProgress,
   interruptCard,
+  isSkippedProgress,
+  localThinkingProgress,
   markRequestMessage,
   mergeChatMessages,
   messageTime,
   optimisticMessages,
+  shouldApplyTaskProgress,
   sidebarView,
   skipResumePayload,
+  threadProgress,
   type ChatMessage,
   type SidebarView,
+  type TaskProgress,
 } from "../lib/chat";
 import { apiErrorMessage } from "../lib/errors";
 import { useAuthStore } from "../stores/auth";
@@ -38,14 +44,54 @@ const hitl = ref({ visible: false, tool: null as unknown, prompt: "", params: {}
 const sidebar = ref<SidebarView>(sidebarView({}));
 const bootstrapVersion = ref(0);
 const latestRequestVersion = ref(0);
+const activeRoundId = ref<string | null>(null);
+const skipFrozen = ref(false);
+const taskProgress = ref<TaskProgress>(threadProgress(null));
 const blobUrls = new Map<string, string>();
 let avatarObjectUrl = "";
+let progressTimer: number | null = null;
 
 function revokeAvatar() {
   if (avatarObjectUrl) {
     URL.revokeObjectURL(avatarObjectUrl);
     avatarObjectUrl = "";
   }
+}
+
+function stopProgressPoll() {
+  if (progressTimer != null) {
+    window.clearInterval(progressTimer);
+    progressTimer = null;
+  }
+}
+
+function applyTaskProgress(incoming: TaskProgress) {
+  if (!shouldApplyTaskProgress(incoming, { activeRoundId: activeRoundId.value, skipFrozen: skipFrozen.value })) {
+    return;
+  }
+  taskProgress.value = incoming;
+}
+
+function applyProgressFromThread(thread: Record<string, unknown>) {
+  applyTaskProgress(threadProgress(thread));
+}
+
+async function pollTaskProgress() {
+  if (!threadId.value) return;
+  try {
+    const thread = await getThread(threadId.value);
+    applyProgressFromThread(thread);
+  } catch {
+    // Polling must never rewrite chat bubbles; ignore transient GET errors.
+  }
+}
+
+function startProgressPoll() {
+  stopProgressPoll();
+  void pollTaskProgress();
+  progressTimer = window.setInterval(() => {
+    void pollTaskProgress();
+  }, 1000);
 }
 
 function isTimeoutError(err: unknown): boolean {
@@ -108,6 +154,10 @@ async function bootstrap() {
     threadId.value = opened.thread_id;
     const [thread] = await Promise.all([getThread(opened.thread_id), loadSidebar()]);
     await applyThread(thread, undefined, version);
+    const progress = threadProgress(thread);
+    activeRoundId.value = progress.round_id;
+    skipFrozen.value = isSkippedProgress(progress);
+    taskProgress.value = progress;
   } catch (err) {
     if (version === bootstrapVersion.value) error.value = apiErrorMessage(err, "加载对话失败");
   }
@@ -120,11 +170,15 @@ async function send() {
   const requestVersion = ++latestRequestVersion.value;
   draft.value = "";
   error.value = "";
+  activeRoundId.value = clientMessageId;
+  skipFrozen.value = false;
+  taskProgress.value = localThinkingProgress(clientMessageId);
   messages.value = [...messages.value, ...optimisticMessages(content, clientMessageId)];
   activeRequests.value += 1;
   try {
     const thread = await postMessage(threadId.value, content, clientMessageId);
     await applyThread(thread, clientMessageId, bootstrapVersion.value, requestVersion);
+    applyProgressFromThread(thread);
   } catch (err) {
     messages.value = markRequestMessage(messages.value, clientMessageId, isTimeoutError(err) ? "timeout" : "error");
     if (!isTimeoutError(err)) error.value = apiErrorMessage(err, "发送失败");
@@ -140,6 +194,7 @@ async function onApprove(payload: { prompt: string; params: Record<string, unkno
   try {
     const thread = await resumeThread(threadId.value, approveResumePayload(payload.prompt, payload.params));
     await applyThread(thread);
+    applyProgressFromThread(thread);
   } catch (err) {
     error.value = apiErrorMessage(err, "审核失败");
   } finally {
@@ -149,11 +204,14 @@ async function onApprove(payload: { prompt: string; params: Record<string, unkno
 
 async function onSkip() {
   if (!threadId.value) return;
+  skipFrozen.value = true;
+  taskProgress.value = freezeSkipProgress(taskProgress.value, hitl.value.tool);
   activeRequests.value += 1;
   error.value = "";
   try {
     const thread = await resumeThread(threadId.value, skipResumePayload());
     await applyThread(thread);
+    applyProgressFromThread(thread);
   } catch (err) {
     error.value = apiErrorMessage(err, "跳过失败");
   } finally {
@@ -168,7 +226,12 @@ async function logout() {
 
 onMounted(bootstrap);
 watch(agentInstanceId, bootstrap);
+watch(sending, (value) => {
+  if (value) startProgressPoll();
+  else stopProgressPoll();
+});
 onUnmounted(() => {
+  stopProgressPoll();
   revokeAvatar();
   for (const url of blobUrls.values()) URL.revokeObjectURL(url);
 });
@@ -227,7 +290,7 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
-      <ChatSidebar :sidebar="sidebar" />
+      <ChatSidebar :sidebar="sidebar" :progress="taskProgress" />
     </div>
   </div>
 </template>

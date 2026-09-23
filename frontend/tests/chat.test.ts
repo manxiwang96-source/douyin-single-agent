@@ -7,9 +7,15 @@ import {
   messageTime,
   optimisticMessages,
   withPendingUser,
+  emptyTaskProgress,
+  freezeSkipProgress,
   interruptCard,
+  isSkippedProgress,
+  localThinkingProgress,
+  shouldApplyTaskProgress,
   sidebarView,
   skipResumePayload,
+  threadProgress,
 } from "../src/lib/chat";
 
 describe("chat helpers", () => {
@@ -120,4 +126,78 @@ describe("chat helpers", () => {
     expect(failed[1].status).toBe("error");
   });
 
+});
+
+describe("task progress helpers", () => {
+  it("parses thread progress and defaults missing payload to idle", () => {
+    expect(emptyTaskProgress()).toEqual({ round_id: null, phase: "idle", steps: [] });
+    expect(threadProgress({})).toEqual({ round_id: null, phase: "idle", steps: [] });
+    const parsed = threadProgress({
+      progress: {
+        round_id: "client-1",
+        phase: "running",
+        steps: [
+          { id: "thinking", kind: "thinking", label: "正在思考", status: "done", spin: false },
+          { id: "tool:search_kb:c1", kind: "tool", tool: "search_kb", label: "知识库检索", status: "running", spin: false },
+        ],
+      },
+    });
+    expect(parsed.phase).toBe("running");
+    expect(parsed.steps[1].spin).toBe(true);
+    expect(parsed.steps[1].label).toBe("知识库检索");
+  });
+
+  it("creates local thinking progress for a new user round", () => {
+    const progress = localThinkingProgress("client-new");
+    expect(progress).toEqual({
+      round_id: "client-new",
+      phase: "thinking",
+      steps: [
+        { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "running", spin: true },
+      ],
+    });
+  });
+
+  it("freezes skip progress as done without composing", () => {
+    const frozen = freezeSkipProgress(
+      {
+        round_id: "client-1",
+        phase: "waiting_review",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "tool:generate_image:c1", kind: "review", tool: "generate_image", label: "等待审核「生成图片」", status: "waiting", spin: false },
+          { id: "composing", kind: "composing", tool: null, label: "正在整理回复", status: "running", spin: true },
+        ],
+      },
+      "generate_image",
+    );
+    expect(frozen.phase).toBe("done");
+    expect(frozen.steps.map((step) => step.label)).toEqual(["正在思考", "已跳过「生成图片」"]);
+    expect(frozen.steps.some((step) => step.kind === "composing")).toBe(false);
+    expect(isSkippedProgress(frozen)).toBe(true);
+  });
+
+  it("ignores other-round and post-skip composing updates", () => {
+    expect(
+      shouldApplyTaskProgress(localThinkingProgress("client-2"), { activeRoundId: "client-1", skipFrozen: false }),
+    ).toBe(false);
+    expect(
+      shouldApplyTaskProgress(
+        { round_id: "client-1", phase: "composing", steps: [] },
+        { activeRoundId: "client-1", skipFrozen: true },
+      ),
+    ).toBe(false);
+    expect(
+      shouldApplyTaskProgress(
+        { round_id: null, phase: "idle", steps: [] },
+        { activeRoundId: "client-1", skipFrozen: false },
+      ),
+    ).toBe(false);
+    expect(
+      shouldApplyTaskProgress(
+        { round_id: "client-1", phase: "done", steps: [] },
+        { activeRoundId: "client-1", skipFrozen: true },
+      ),
+    ).toBe(true);
+  });
 });

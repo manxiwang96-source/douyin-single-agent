@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.thread_progress import MEDIA_TOOLS
 from tests.fakes import DUMMY_MP4, TINY_PNG, ai_text, ai_tool
 from tests.http_helpers import create_and_open, make_client, register_and_login
 
@@ -42,6 +43,7 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert empty.status_code == 200
     assert empty.json()["status"] == "idle"
     assert empty.json()["id"] == thread_id
+    assert empty.json()["progress"] == {"round_id": None, "phase": "idle", "steps": []}
 
     interrupted = client.post(
         f"/v1/threads/{thread_id}/messages",
@@ -52,6 +54,9 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert body["status"] == "interrupted"
     assert body["interrupt"]["type"] == "review_media"
     assert body["interrupt"]["tool"] == "generate_image"
+    assert body["progress"]["phase"] == "waiting_review"
+    assert any(step["label"] == MEDIA_TOOLS["generate_image"]["waiting"] for step in body["progress"]["steps"])
+    assert all((not step["spin"]) for step in body["progress"]["steps"] if step["status"] == "waiting")
 
     blocked = client.post(
         f"/v1/threads/{thread_id}/messages",
@@ -66,6 +71,8 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert resumed.status_code == 200
     payload = resumed.json()
     assert payload["status"] == "idle"
+    assert payload["progress"]["phase"] == "done"
+    assert any(step["kind"] == "composing" and step["status"] == "done" for step in payload["progress"]["steps"])
     media_items = []
     for message in payload["messages"]:
         media_items.extend(message.get("media") or [])
@@ -101,6 +108,8 @@ def test_thread_messages_expose_server_metadata_and_client_identity(runtime, llm
     assert assistant["client_message_id"] == "client-123"
     assert assistant["message_id"]
     assert assistant["created_at"].endswith("+08:00")
+    assert payload["progress"]["round_id"] == "client-123"
+    assert payload["progress"]["phase"] == "done"
 
 
 
@@ -123,6 +132,10 @@ def test_skip_resume_has_no_media_url(runtime, llm, image_client):
     ]
     assert media_items == []
     assert image_client.calls == []
+    skip_progress = resumed.json()["progress"]
+    assert skip_progress["phase"] == "done"
+    assert any(step["label"] == MEDIA_TOOLS["generate_image"]["skipped"] for step in skip_progress["steps"])
+    assert not any(step["kind"] == "composing" for step in skip_progress["steps"])
 
 
 def test_video_media_content_type(runtime, llm, video_client):

@@ -30,7 +30,8 @@ User entry: Vue module at `frontend/` (login -> create a `douyin_ops` instance (
 - app/runtime.py: production PostgresSaver + PostgresStore; tests InMemorySaver + in-memory long-term store and InMemoryBusinessRepository; default pytest injects FakeDifyClient
 - app/main.py: FastAPI factory create_app(runtime=None); Bearer plaza/auth/open/sidebar; ainvoke for message/resume
 - app/prompts.py: identity is 抖音运营助手; must say 会真实发送 then immediately call `discover_douyin_leads`; do not ask for keyword when `video_id` is present; channels stay `comment,message`; no Xiaohongshu note template
-- app/serialize.py: thread JSON with media URLs and review_media interrupt
+- app/serialize.py: thread JSON with media URLs, review_media interrupt, and read-only derived `progress`
+- app/thread_progress.py: derive current-round sidebar progress from checkpoint messages, `next`, and `review_media` interrupt
 - ui/view_model.py: plaza cards, readonly sidebar, auth_gate so a thread exists only after login and /open
 - ui/streamlit_app.py: Streamlit v1 client over existing HTTP; token in session_state as Bearer; transitional, not deleted
 - frontend/: Vue 3 + Vite plaza module; routes `/login`, `/agents`, `/agents/:agentInstanceId`; Bearer in localStorage; CSS prefix `agent-`
@@ -100,9 +101,16 @@ Live true-send must stagger with C's Feishu bot to avoid double send.
 
 ## Vue chat page layout (2026-09-23)
 - Chat shell is `frontend/src/views/ChatView.vue` with read-only `ChatSidebar.vue`. Business send/merge/HITL/timeout behavior is unchanged.
-- Full-width top bar keeps plaza return, instance avatar/name, and logout. Below it, desktop layout is main chat plus a 320px sidebar; at `max-width: 900px` the sidebar stacks under the chat area.
-- Messages, empty state, and the text composer share a centered `.agent-chat-column` (`max-width: 860px`). The composer is not full-bleed across the main pane and still has no upload/model/publish controls.
+- Full-width top bar keeps plaza return, instance avatar/name, and logout. Below it, desktop layout is main chat plus a 400px sidebar; at `max-width: 900px` the sidebar stacks under the chat area.
+- Messages, empty state, and the text composer share a centered `.agent-chat-column` (`max-width: 860px`, `margin: 0 auto`) inside the main pane. Widening the sidebar does not recompute that centering against the full page. The composer is not full-bleed and still has no upload/model/publish controls.
+- `.agent-chat` is viewport-locked (`height: 100vh; overflow: hidden`). The message list scrolls; the sidebar does not scroll with the chat. The top task box and catalog below it each have their own `overflow-y: auto`.
 - Assistant rows align left inside the column and show the instance avatar; user rows align right inside the same column and do not reuse that avatar.
-- Pending assistant bubbles stay horizontal (`inline-flex`, `min-width: 108px`, `white-space: nowrap`). Long bubbles, media, HITL cards, composer input, and sidebar text use `overflow-wrap` / `word-break` so they cannot blow the page.
-- Sidebar remains catalog-only: capability description, development notes, mode, knowledge, workflows, and tools. Empty fields/arrays show placeholders.
+- Pending assistant bubbles stay horizontal (`inline-flex`, `min-width: 108px`, `white-space: nowrap`) and still say `正在回复`. Long bubbles, media, HITL cards, composer input, and sidebar text use `overflow-wrap` / `word-break` so they cannot blow the page.
+- Sidebar catalog remains read-only: capability description, development notes, mode, knowledge, workflows, and tools. Empty fields/arrays show placeholders.
+
+## Current-round task progress (2026-09-23)
+- `serialize_thread()` keeps bubble filtering unchanged and only adds a derived `progress` object: `round_id`, `phase` (`idle|thinking|running|waiting_review|composing|done`), and ordered `steps`.
+- `round_id` is the last HumanMessage `client_message_id`, else that message id. No user message yields idle empty steps. Named LangGraph tools stay in the round history; `discover_douyin_leads` is shown as 正在运行「抖音线索发现与触达」 with no Dify internal nodes.
+- HITL `review_media` is the same round: Approve keeps the panel and can update the media step back to running. Skip freezes the round as done (`已跳过「生成图片/视频」`) and never adds 正在整理回复, even if `next` still contains `chatbot`.
+- History remains after the final assistant bubble; the next user message starts a new `round_id` and resets the panel. Vue polls `GET /v1/threads/{id}` while sending and must not `applyThread` those snapshots onto chat bubbles. Before the first tool checkpoint, the client shows local 正在思考.
 

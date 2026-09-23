@@ -265,4 +265,51 @@ describe("vue components", () => {
     await wrapper.get("button.agent-btn-ghost").trigger("click");
     expect(wrapper.emitted("skip")).toBeTruthy();
   });
+  it("renders the current-task panel above the catalog", () => {
+    const wrapper = mount(ChatSidebar, {
+      props: {
+        sidebar: sidebarView({
+          capability_description: "规划抖音运营并触达线索",
+          development_notes: "能力只展示不勾选",
+          agent_mode_label: "单智能体模式",
+          knowledge_documents: [],
+          workflows: [],
+          tools: [],
+        }),
+        progress: {
+          round_id: "client-1",
+          phase: "running",
+          steps: [
+            { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+            { id: "tool:discover_douyin_leads:c1", kind: "tool", tool: "discover_douyin_leads", label: "正在运行「抖音线索发现与触达」", status: "running", spin: true },
+          ],
+        },
+      },
+    });
+    const html = wrapper.html();
+    expect(html.indexOf("agent-task-progress")).toBeGreaterThan(-1);
+    expect(html.indexOf("agent-task-progress")).toBeLessThan(html.indexOf("agent-sidebar-catalog"));
+    expect(wrapper.get(".agent-task-progress h3").text()).toBe("当前任务");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「抖音线索发现与触达」");
+    expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
+    expect(wrapper.get(".agent-sidebar-catalog").text()).toContain("规划抖音运营并触达线索");
+  });
+
+  it("shows an empty-task placeholder when there are no steps", () => {
+    const wrapper = mount(ChatSidebar, {
+      props: {
+        sidebar: sidebarView({
+          capability_description: "",
+          development_notes: "",
+          agent_mode_label: "单智能体模式",
+          knowledge_documents: [],
+          workflows: [],
+          tools: [],
+        }),
+      },
+    });
+    expect(wrapper.get(".agent-task-empty").text()).toBe("暂无进行中的任务");
+    expect(wrapper.find(".agent-task-steps").exists()).toBe(false);
+  });
+
 });

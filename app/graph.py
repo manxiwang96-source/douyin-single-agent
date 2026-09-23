@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, NotRequired, TypedDict
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -10,11 +12,13 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.utils.runnable import RunnableCallable
 
+from app.message_metadata import message_metadata, new_message_metadata, with_message_metadata
 from app.prompts import SYSTEM_PROMPT
 
 DEFAULT_ALLOWED_WORKFLOW_CODES = ["douyin-lead-discovery"]
 SCHEDULER_USER_ID = "00000000-0000-4000-8000-000000000001"
 SCHEDULER_AGENT_INSTANCE_ID = "00000000-0000-4000-8000-000000000002"
+DEFAULT_ASSISTANT_TIMEZONE = "Asia/Shanghai"
 
 
 def build_invoke_config(
@@ -23,12 +27,14 @@ def build_invoke_config(
     user_id,
     agent_instance_id,
     allowed_workflow_codes: list[str] | None = None,
+    assistant_timezone: str = DEFAULT_ASSISTANT_TIMEZONE,
 ) -> dict[str, Any]:
     return {
         "configurable": {
             "thread_id": str(thread_id),
             "user_id": str(user_id),
             "agent_instance_id": str(agent_instance_id),
+            "assistant_timezone": assistant_timezone,
             "allowed_workflow_codes": list(
                 allowed_workflow_codes
                 if allowed_workflow_codes is not None
@@ -107,10 +113,39 @@ def _retrieve_instance_knowledge(state: AgentState, config: RunnableConfig | Non
     return "\n\n".join(texts)
 
 
+def _server_now(config: RunnableConfig | None) -> tuple[datetime, str]:
+    timezone_name = str(_configurable(config).get("assistant_timezone") or DEFAULT_ASSISTANT_TIMEZONE)
+    try:
+        zone = ZoneInfo(timezone_name)
+    except Exception:
+        timezone_name = DEFAULT_ASSISTANT_TIMEZONE
+        zone = ZoneInfo(timezone_name)
+    return datetime.now(zone), timezone_name
+
+
+def _time_context(state: AgentState, config: RunnableConfig | None) -> str:
+    current, timezone_name = _server_now(config)
+    lines = [
+        "服务端时间上下文（权威，不要使用模型自身知识推断日期）：",
+        f"[server_now={current.isoformat()}]",
+        f"[server_date={current.date().isoformat()}]",
+        f"[assistant_timezone={timezone_name}]",
+    ]
+    for message in state.get("messages") or []:
+        metadata = message_metadata(message)
+        created_at = metadata.get("created_at")
+        if created_at:
+            lines.append(f"[message_time={created_at}] {_message_text(message)}")
+    return "\n".join(lines)
+
+
 def build_graph(*, llm, tools, checkpointer, store=None):
     def _chat_payload(state: AgentState, config: RunnableConfig | None = None):
         bound = llm.bind_tools(tools, parallel_tool_calls=False)
-        payload = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+        payload = [
+            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + _time_context(state, config)),
+            *state["messages"],
+        ]
         retrieved = _retrieve_instance_knowledge(state, config)
         if retrieved:
             payload = [
@@ -120,19 +155,28 @@ def build_graph(*, llm, tools, checkpointer, store=None):
             ]
         return bound, payload
 
-    def _chat_result(message):
+    def _chat_result(message, state: AgentState, config: RunnableConfig | None = None):
         tool_calls = getattr(message, "tool_calls", None) or []
-        # Tutorial 4: disable parallel tool calls so interrupt/resume does not rerun tools.
         assert len(tool_calls) <= 1
-        return {"messages": [message]}
+        current_user = next(
+            (item for item in reversed(state.get("messages") or []) if isinstance(item, HumanMessage)),
+            None,
+        )
+        current_metadata = message_metadata(current_user)
+        now, _ = _server_now(config)
+        metadata = new_message_metadata(
+            client_message_id=current_metadata.get("client_message_id"),
+            created_at=now,
+        )
+        return {"messages": [with_message_metadata(message, metadata)]}
 
     def chatbot(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         bound, payload = _chat_payload(state, config)
-        return _chat_result(bound.invoke(payload))
+        return _chat_result(bound.invoke(payload), state, config)
 
     async def achatbot(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         bound, payload = _chat_payload(state, config)
-        return _chat_result(await bound.ainvoke(payload))
+        return _chat_result(await bound.ainvoke(payload), state, config)
 
     builder = StateGraph(AgentState)
     builder.add_node("chatbot", RunnableCallable(chatbot, achatbot, name="chatbot"))

@@ -90,3 +90,10 @@ Delivery gate is `RUN_LIVE_DOUYIN=1` with `LIVE_DOUYIN_ACCOUNT` and `LIVE_DOUYIN
 Skip due to missing live config is not delivery success.
 Old `RUN_LIVE_ASSISTANT=1` morning-brief email is not the Douyin worker success definition.
 Live true-send must stagger with C's Feishu bot to avoid double send.
+
+## Chat message time and delivery deduplication (2026-09-23)
+- `app/message_metadata.py` defines the checkpoint-compatible `additional_kwargs["chat_message"]` metadata contract: `message_id`, `client_message_id`, and server-generated `created_at`.
+- `POST /v1/threads/{thread_id}/messages` creates the user metadata with `Settings.assistant_timezone`; graph-generated assistant messages inherit the current user's `client_message_id` and receive their own server timestamp. `serialize_thread()` returns metadata fields and the configured `timezone`; legacy checkpoint messages return `null` fields rather than fabricated browser/current time.
+- The graph injects `server_now`, `server_date`, `assistant_timezone`, and historical `[message_time=...]` markers into the model context. Prompt rules require the server context for date-sensitive decisions.
+- `find_successful_delivery_today()` only matches a `succeeded` workflow run in the current assistant timezone, scoped to user/agent instance, account, `video_id`, requested channel, and explicit `sent` items in `list_comment`/`list_message`. Failed/cancelled/timeout/running and prior dates do not deduplicate. No workflow/database schema or migration is added.
+- Vue chat identity is `messageId` first and `clientMessageId` second. Sending inserts a user optimistic bubble followed by a pending assistant bubble; server responses replace matching entries, while local pending/timeout/error and newer client-id messages survive stale responses. Chat requests use the longer `CHAT_TIMEOUT_MS`; timeout/error states remain visible. Server ISO offsets are displayed without converting to the browser timezone.

@@ -84,6 +84,26 @@ def test_thread_message_resume_and_media(runtime, llm, image_client, media_root)
     assert image_client.calls
 
 
+def test_thread_messages_expose_server_metadata_and_client_identity(runtime, llm):
+    llm.responses = [ai_text("收到")]
+    client, thread_id = _open_thread(runtime)
+    response = client.post(
+        f"/v1/threads/{thread_id}/messages",
+        json={"content": "带客户端标识的消息", "client_message_id": "client-123"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["timezone"] == "Asia/Shanghai"
+    user, assistant = payload["messages"]
+    assert user["client_message_id"] == "client-123"
+    assert user["message_id"]
+    assert user["created_at"].endswith("+08:00")
+    assert assistant["client_message_id"] == "client-123"
+    assert assistant["message_id"]
+    assert assistant["created_at"].endswith("+08:00")
+
+
+
 def test_skip_resume_has_no_media_url(runtime, llm, image_client):
     llm.responses = [
         ai_tool("generate_image", {"prompt": "skip"}),

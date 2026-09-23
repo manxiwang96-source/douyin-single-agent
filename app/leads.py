@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any
 from uuid import UUID
 
@@ -130,6 +131,48 @@ def find_in_progress_run(repo, user_id: UUID, agent_instance_id: UUID, inputs: d
             return record
     return None
 
+
+def _requested_channels(value: Any) -> set[str]:
+    normalized = normalize_lead_channels(str(value or ""))
+    return set(normalized.split(","))
+
+
+def _successful_channels(outputs: Any) -> set[str]:
+    payload = outputs if isinstance(outputs, dict) else {}
+    channels: set[str] = set()
+    for output_key, channel, allowed in (
+        ("list_comment", CHANNEL_COMMENT, ENGAGE_COMMENT_STATUSES),
+        ("list_message", CHANNEL_MESSAGE, ENGAGE_DM_STATUSES),
+    ):
+        items, _ = _delivery_items(payload.get(output_key))
+        if any(isinstance(item, dict) and _item_status(item, allowed) == "sent" for item in items):
+            channels.add(channel)
+    return channels
+
+
+def find_successful_delivery_today(
+    repo,
+    user_id: UUID,
+    agent_instance_id: UUID,
+    inputs: dict[str, Any],
+    *,
+    assistant_timezone: str,
+    now: datetime | None = None,
+):
+    zone = ZoneInfo(assistant_timezone)
+    current = (now or datetime.now(zone)).astimezone(zone)
+    account = _norm(inputs.get("account"))
+    video_id = _norm(inputs.get("video_id"))
+    requested = _requested_channels(inputs.get("channels"))
+    for record in repo.list_workflow_runs(user_id, agent_instance_id, status="succeeded"):
+        if record.created_at.astimezone(zone).date() != current.date():
+            continue
+        existing = record.inputs or {}
+        if _norm(existing.get("account")) != account or _norm(existing.get("video_id")) != video_id:
+            continue
+        if requested & _successful_channels(record.outputs):
+            return record
+    return None
 
 def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
@@ -387,6 +430,22 @@ def run_discover_douyin_leads(
             "summary": "in-progress run reused; skipped second POST",
         }
 
+    delivered_today = find_successful_delivery_today(
+        business_repo,
+        user_id,
+        agent_instance_id,
+        inputs,
+        assistant_timezone=getattr(settings, "assistant_timezone", "Asia/Shanghai"),
+    )
+    if delivered_today is not None:
+        return {
+            "ok": True,
+            "reused": True,
+            "status": "succeeded",
+            "workflow_run_id": delivered_today.workflow_run_id,
+            "id": str(delivered_today.id),
+            "summary": "same account, video and delivery type already succeeded today; skipped duplicate send",
+        }
     run = business_repo.create_workflow_run(
         user_id,
         agent_instance_id,

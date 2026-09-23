@@ -132,4 +132,85 @@ describe("ChatView HITL", () => {
     expect(rows[1].find(".agent-msg-avatar").exists()).toBe(true);
     expect(rows[1].text()).toContain("您好，我是抖音运营助手");
   });
+
+  it("keeps user and timeout assistant state when chat request times out", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockRejectedValue(Object.assign(new Error("request timeout"), { code: "ECONNABORTED" }));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("超时请求");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.find(".agent-msg-row.is-user").text()).toContain("超时请求");
+    expect(wrapper.find(".agent-msg-row.is-timeout").text()).toContain("等待超时");
+    expect(wrapper.findAll(".agent-msg-row")).toHaveLength(2);
+  });
+
+  it("keeps user and error assistant state when chat request fails", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockRejectedValue(new Error("server failed"));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("失败请求");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.find(".agent-msg-row.is-user").text()).toContain("失败请求");
+    expect(wrapper.find(".agent-msg-row.is-error").text()).toContain("本次回复失败");
+    expect(wrapper.text()).toContain("server failed");
+  });
+
+  it("keeps identical consecutive user messages as separate requests", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockImplementation(() => new Promise(() => undefined));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const composer = wrapper.get(".agent-composer textarea");
+    await composer.setValue("重复文本");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await composer.setValue("重复文本");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    expect(wrapper.findAll(".agent-msg-row.is-user")).toHaveLength(2);
+    expect(wrapper.findAll(".agent-msg-row.is-pending")).toHaveLength(2);
+    expect(postMessage).toHaveBeenCalledTimes(2);
+    expect(postMessage.mock.calls[0][2]).not.toBe(postMessage.mock.calls[1][2]);
+  });
+
+
+  it("ignores an older send response after a newer request has started", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    const resolvers: Array<(value: unknown) => void> = [];
+    postMessage.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const composer = wrapper.get(".agent-composer textarea");
+    await composer.setValue("第一条");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await composer.setValue("第二条");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+    const firstClientId = postMessage.mock.calls[0][2];
+    const secondClientId = postMessage.mock.calls[1][2];
+    resolvers[1]({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "第二条", message_id: "u2", client_message_id: secondClientId },
+        { role: "assistant", content: "第二条回复", message_id: "a2", client_message_id: secondClientId },
+      ],
+    });
+    await flushPromises();
+    resolvers[0]({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "第一条", message_id: "u1", client_message_id: firstClientId },
+        { role: "assistant", content: "第一条回复", message_id: "a1", client_message_id: firstClientId },
+      ],
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("第二条回复");
+    expect(wrapper.text()).not.toContain("第一条回复");
+  });
+
 });

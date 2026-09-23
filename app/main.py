@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langchain_core.messages import HumanMessage
+from app.message_metadata import new_message_metadata
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -48,10 +49,13 @@ from app.repository import (
 from app.runtime import AppRuntime, build_runtime
 from app.serialize import serialize_thread
 from contextlib import asynccontextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class MessageIn(BaseModel):
     content: str = Field(min_length=1)
+    client_message_id: str | None = None
 
 
 class ResumeIn(BaseModel):
@@ -171,6 +175,7 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             user_id=thread.user_id,
             agent_instance_id=thread.agent_instance_id,
             allowed_workflow_codes=allowed,
+            assistant_timezone=runtime.settings.assistant_timezone,
         )
         await runtime.graph.ainvoke(payload, config)
         return serialize_thread(runtime, thread_id)
@@ -366,7 +371,16 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         current = serialize_thread(runtime, thread_id)
         if current.get("status") == "interrupted":
             raise _http_error(409, "thread is waiting for review")
-        return await _arun(thread_id, {"messages": [HumanMessage(content=body.content)]})
+        metadata = new_message_metadata(
+            client_message_id=body.client_message_id,
+            created_at=datetime.now(ZoneInfo(runtime.settings.assistant_timezone)),
+        )
+        message = HumanMessage(
+            content=body.content,
+            id=metadata["message_id"],
+            additional_kwargs={"chat_message": metadata},
+        )
+        return await _arun(thread_id, {"messages": [message]})
 
     @app.post("/v1/threads/{thread_id}/resume")
     async def resume_thread(

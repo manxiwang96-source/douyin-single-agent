@@ -9,9 +9,12 @@ import {
   approveResumePayload,
   buildChatView,
   interruptCard,
+  markRequestMessage,
+  mergeChatMessages,
+  messageTime,
+  optimisticMessages,
   sidebarView,
   skipResumePayload,
-  withPendingUser,
   type ChatMessage,
   type SidebarView,
 } from "../lib/chat";
@@ -26,13 +29,15 @@ const threadId = ref(typeof route.query.thread_id === "string" ? route.query.thr
 const title = ref("抖音运营助手");
 const avatarSrc = ref("");
 const error = ref("");
-const sending = ref(false);
+const activeRequests = ref(0);
+const sending = computed(() => activeRequests.value > 0);
 const draft = ref("");
-const pendingUser = ref("");
 const messages = ref<ChatMessage[]>([]);
 const inputEnabled = ref(true);
 const hitl = ref({ visible: false, tool: null as unknown, prompt: "", params: {} as Record<string, unknown> });
 const sidebar = ref<SidebarView>(sidebarView({}));
+const bootstrapVersion = ref(0);
+const latestRequestVersion = ref(0);
 const blobUrls = new Map<string, string>();
 let avatarObjectUrl = "";
 
@@ -43,10 +48,13 @@ function revokeAvatar() {
   }
 }
 
+function isTimeoutError(err: unknown): boolean {
+  const value = err as { code?: string; message?: string } | null;
+  return value?.code === "ECONNABORTED" || value?.code === "ETIMEDOUT" || /timeout/i.test(value?.message || "");
+}
+
 async function resolvePreview(url: string): Promise<string> {
-  if (blobUrls.has(url)) {
-    return blobUrls.get(url) || url;
-  }
+  if (blobUrls.has(url)) return blobUrls.get(url) || url;
   try {
     const blob = await fetchAuthBlob(url);
     const objectUrl = URL.createObjectURL(blob);
@@ -57,25 +65,23 @@ async function resolvePreview(url: string): Promise<string> {
   }
 }
 
-async function applyThread(thread: Record<string, unknown>) {
+async function applyThread(thread: Record<string, unknown>, settledClientMessageId?: string, version = bootstrapVersion.value, requestVersion?: number) {
   const view = buildChatView(thread, "");
   const card = interruptCard(view);
   inputEnabled.value = view.chat_input_enabled;
-  hitl.value = {
-    visible: card.visible,
-    tool: card.tool,
-    prompt: card.prompt,
-    params: card.params,
-  };
+  hitl.value = { visible: card.visible, tool: card.tool, prompt: card.prompt, params: card.params };
+  const merged = mergeChatMessages(view.messages, messages.value, settledClientMessageId);
   const nextMessages: ChatMessage[] = [];
-  for (const item of withPendingUser(view.messages, pendingUser.value)) {
+  for (const item of merged) {
     const previews = [];
     for (const preview of item.previews) {
       previews.push({ widget: preview.widget, url: await resolvePreview(preview.url) });
     }
     nextMessages.push({ ...item, previews });
   }
-  messages.value = nextMessages;
+  if (version === bootstrapVersion.value && (requestVersion === undefined || requestVersion === latestRequestVersion.value)) {
+    messages.value = nextMessages;
+  }
 }
 
 async function loadSidebar() {
@@ -94,45 +100,42 @@ async function loadSidebar() {
 }
 
 async function bootstrap() {
+  const version = ++bootstrapVersion.value;
   error.value = "";
   try {
     const opened = await openAgentInstance(agentInstanceId.value);
+    if (version !== bootstrapVersion.value) return;
     threadId.value = opened.thread_id;
-    await Promise.all([
-      loadSidebar(),
-      getThread(opened.thread_id).then(applyThread),
-    ]);
+    const [thread] = await Promise.all([getThread(opened.thread_id), loadSidebar()]);
+    await applyThread(thread, undefined, version);
   } catch (err) {
-    error.value = apiErrorMessage(err, "加载对话失败");
+    if (version === bootstrapVersion.value) error.value = apiErrorMessage(err, "加载对话失败");
   }
 }
 
 async function send() {
   const content = draft.value.trim();
-  if (!content || !inputEnabled.value || sending.value || !threadId.value) {
-    return;
-  }
+  if (!content || !inputEnabled.value || !threadId.value) return;
+  const clientMessageId = crypto.randomUUID();
+  const requestVersion = ++latestRequestVersion.value;
   draft.value = "";
-  pendingUser.value = content;
-  sending.value = true;
   error.value = "";
-  messages.value = withPendingUser(messages.value, content);
+  messages.value = [...messages.value, ...optimisticMessages(content, clientMessageId)];
+  activeRequests.value += 1;
   try {
-    const thread = await postMessage(threadId.value, content);
-    pendingUser.value = "";
-    await applyThread(thread);
+    const thread = await postMessage(threadId.value, content, clientMessageId);
+    await applyThread(thread, clientMessageId, bootstrapVersion.value, requestVersion);
   } catch (err) {
-    error.value = apiErrorMessage(err, "发送失败");
+    messages.value = markRequestMessage(messages.value, clientMessageId, isTimeoutError(err) ? "timeout" : "error");
+    if (!isTimeoutError(err)) error.value = apiErrorMessage(err, "发送失败");
   } finally {
-    sending.value = false;
+    activeRequests.value -= 1;
   }
 }
 
 async function onApprove(payload: { prompt: string; params: Record<string, unknown> }) {
-  if (!threadId.value) {
-    return;
-  }
-  sending.value = true;
+  if (!threadId.value) return;
+  activeRequests.value += 1;
   error.value = "";
   try {
     const thread = await resumeThread(threadId.value, approveResumePayload(payload.prompt, payload.params));
@@ -140,15 +143,13 @@ async function onApprove(payload: { prompt: string; params: Record<string, unkno
   } catch (err) {
     error.value = apiErrorMessage(err, "审核失败");
   } finally {
-    sending.value = false;
+    activeRequests.value -= 1;
   }
 }
 
 async function onSkip() {
-  if (!threadId.value) {
-    return;
-  }
-  sending.value = true;
+  if (!threadId.value) return;
+  activeRequests.value += 1;
   error.value = "";
   try {
     const thread = await resumeThread(threadId.value, skipResumePayload());
@@ -156,7 +157,7 @@ async function onSkip() {
   } catch (err) {
     error.value = apiErrorMessage(err, "跳过失败");
   } finally {
-    sending.value = false;
+    activeRequests.value -= 1;
   }
 }
 
@@ -169,9 +170,7 @@ onMounted(bootstrap);
 watch(agentInstanceId, bootstrap);
 onUnmounted(() => {
   revokeAvatar();
-  for (const url of blobUrls.values()) {
-    URL.revokeObjectURL(url);
-  }
+  for (const url of blobUrls.values()) URL.revokeObjectURL(url);
 });
 </script>
 
@@ -191,30 +190,22 @@ onUnmounted(() => {
       <div class="agent-messages">
         <div
           v-for="(item, index) in messages"
-          :key="index"
+          :key="item.messageId || item.clientMessageId || `${item.role}-${index}`"
           class="agent-msg-row"
-          :class="{ 'is-user': item.role === 'user' }"
+          :class="{ 'is-user': item.role === 'user', 'is-pending': item.pending, 'is-timeout': item.status === 'timeout', 'is-error': item.status === 'error' }"
         >
           <div v-if="item.role !== 'user'" class="agent-msg-avatar" aria-hidden="true">
             <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
             <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
           </div>
-          <div class="agent-bubble" :class="{ 'is-user': item.role === 'user' }">
-            <div v-if="item.content">{{ item.content }}</div>
-            <img
-              v-for="preview in item.previews.filter((row) => row.widget === 'image')"
-              :key="preview.url"
-              class="agent-media"
-              :src="preview.url"
-              alt=""
-            />
-            <video
-              v-for="preview in item.previews.filter((row) => row.widget === 'video')"
-              :key="preview.url"
-              class="agent-media"
-              :src="preview.url"
-              controls
-            />
+          <div class="agent-message-content">
+            <div v-if="item.createdAt" class="agent-message-time">{{ messageTime(item.createdAt) }}</div>
+            <div class="agent-bubble" :class="{ 'is-user': item.role === 'user', 'agent-bubble-pending': item.pending }" role="status" :aria-live="item.pending ? 'polite' : undefined">
+              <div v-if="item.content">{{ item.content }}</div>
+              <span v-if="item.pending" class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <img v-for="preview in item.previews.filter((row) => row.widget === 'image')" :key="preview.url" class="agent-media" :src="preview.url" alt="" />
+              <video v-for="preview in item.previews.filter((row) => row.widget === 'video')" :key="preview.url" class="agent-media" :src="preview.url" controls />
+            </div>
           </div>
         </div>
         <div v-if="hitl.visible && !sending" class="agent-msg-row is-hitl">
@@ -222,41 +213,12 @@ onUnmounted(() => {
             <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
             <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
           </div>
-          <HitlCard
-            :visible="true"
-            :tool="hitl.tool"
-            :prompt="hitl.prompt"
-            :params="hitl.params"
-            :disabled="sending"
-            @approve="onApprove"
-            @skip="onSkip"
-          />
-        </div>
-        <div v-if="sending" class="agent-msg-row is-pending">
-          <div class="agent-msg-avatar" aria-hidden="true">
-            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
-            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
-          </div>
-          <div
-            class="agent-bubble agent-bubble-pending"
-            role="status"
-            aria-live="polite"
-          >
-            <span>正在回复</span>
-            <span class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          </div>
+          <HitlCard :visible="true" :tool="hitl.tool" :prompt="hitl.prompt" :params="hitl.params" :disabled="sending" @approve="onApprove" @skip="onSkip" />
         </div>
       </div>
       <form class="agent-composer" @submit.prevent="send">
-        <textarea
-          v-model="draft"
-          :disabled="!inputEnabled || sending"
-          placeholder="输入抖音运营问题、提醒或内容需求"
-          @keydown.enter.exact.prevent="send"
-        />
-        <button class="agent-btn" type="submit" :disabled="!inputEnabled || sending">
-          {{ sending ? "发送中..." : "发送" }}
-        </button>
+        <textarea v-model="draft" :disabled="!inputEnabled" placeholder="输入抖音运营问题、提醒或内容需求" @keydown.enter.exact.prevent="send" />
+        <button class="agent-btn" type="submit" :disabled="!inputEnabled">{{ sending ? "发送中..." : "发送" }}</button>
       </form>
     </section>
     <ChatSidebar :sidebar="sidebar" />

@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   approveResumePayload,
   buildChatView,
+  markRequestMessage,
+  mergeChatMessages,
+  messageTime,
+  optimisticMessages,
+  withPendingUser,
   interruptCard,
   sidebarView,
   skipResumePayload,
@@ -57,4 +62,62 @@ describe("chat helpers", () => {
     });
     expect(skipResumePayload()).toEqual({ action: "skip" });
   });
+
+  it("keeps server message time and does not invent old-message time", () => {
+    const view = buildChatView({
+      status: "idle",
+      messages: [
+        {
+          role: "user",
+          content: "带时间",
+          media: [],
+          message_id: "message-1",
+          client_message_id: "client-1",
+          created_at: "2026-09-23T12:34:56+08:00",
+        },
+        { role: "assistant", content: "旧消息", media: [] },
+      ],
+    });
+    expect(view.messages[0].createdAt).toBe("2026-09-23T12:34:56+08:00");
+    expect(messageTime(view.messages[0].createdAt)).toBe("2026-09-23 12:34:56");
+    expect(view.messages[1].createdAt).toBeUndefined();
+    expect(messageTime()).toBe("");
+  });
+
+  it("creates user-first optimistic and pending assistant messages with distinct ids", () => {
+    const first = optimisticMessages("同样的文本", "client-1");
+    const second = optimisticMessages("同样的文本", "client-2");
+    expect(first.map((item) => item.role)).toEqual(["user", "assistant"]);
+    expect(first[1].pending).toBe(true);
+    expect(withPendingUser([], { content: "同样的文本", clientMessageId: "client-1", createdAt: "2026-09-23T12:00:00+08:00" })).toHaveLength(1);
+    expect(withPendingUser(first, { content: "同样的文本", clientMessageId: "client-2", createdAt: "2026-09-23T12:00:01+08:00" })).toHaveLength(3);
+    expect(second[0].clientMessageId).not.toBe(first[0].clientMessageId);
+  });
+
+  it("does not let an older server response erase newer local replies", () => {
+    const newer = optimisticMessages("新消息", "client-new");
+    newer[1] = { ...newer[1], content: "新回复", pending: false, status: "normal", messageId: "assistant-new" };
+    const merged = mergeChatMessages(
+      [{ role: "user", content: "旧消息", previews: [], messageId: "user-old" }],
+      [
+        { role: "user", content: "新消息", previews: [], clientMessageId: "client-new" },
+        newer[1],
+      ],
+    );
+    expect(merged.map((item) => item.content)).toEqual(["旧消息", "新消息", "新回复"]);
+  });
+
+  it("retains the user and visible assistant status after timeout or error", () => {
+    const local = optimisticMessages("请求", "client-1");
+    const timedOut = markRequestMessage(local, "client-1", "timeout");
+    expect(timedOut).toHaveLength(2);
+    expect(timedOut[0].content).toBe("请求");
+    expect(timedOut[1].content).toContain("等待超时");
+    expect(timedOut[1].status).toBe("timeout");
+    const failed = markRequestMessage(local, "client-1", "error");
+    expect(failed[0].content).toBe("请求");
+    expect(failed[1].content).toContain("失败");
+    expect(failed[1].status).toBe("error");
+  });
+
 });

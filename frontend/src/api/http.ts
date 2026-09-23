@@ -4,6 +4,7 @@ export const TOKEN_KEY = "token";
 export const USER_ID_KEY = "user_id";
 export const LOGIN_NAME_KEY = "login_name";
 export const HTTP_TIMEOUT_MS = 180000;
+export const CHAT_TIMEOUT_MS = 360000;
 
 export type SessionSnapshot = {
   token: string;
@@ -111,3 +112,4 @@ export function createHttpClient(options: HttpClientOptions = {}): AxiosInstance
 }
 
 export const http = createHttpClient();
+export const chatHttp = createHttpClient({ timeout: CHAT_TIMEOUT_MS });

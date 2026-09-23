@@ -223,6 +223,31 @@ describe("vue components", () => {
     expect(wrapper.html()).not.toContain("model");
   });
 
+
+  it("shows friendly placeholders when sidebar arrays are empty", () => {
+    const wrapper = mount(ChatSidebar, {
+      props: {
+        sidebar: sidebarView({
+          capability_description: "",
+          development_notes: "",
+          agent_mode_label: "单智能体模式",
+          knowledge_documents: [],
+          workflows: [],
+          tools: [],
+        }),
+      },
+    });
+    expect(wrapper.findAll(".agent-side-empty").map((item) => item.text())).toEqual([
+      "暂无描述",
+      "暂无要点",
+      "暂无文档",
+      "暂无工作流",
+      "暂无工具",
+    ]);
+    expect(wrapper.text()).toContain("单智能体模式");
+    expect(wrapper.text()).toContain("多智能体模式");
+  });
+
   it("HITL card exposes approve/skip and chat helpers disable input", async () => {
     const wrapper = mount(HitlCard, {
       props: {

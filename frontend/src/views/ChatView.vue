@@ -176,51 +176,58 @@ onUnmounted(() => {
 
 <template>
   <div class="agent-page agent-chat">
-    <section class="agent-chat-main">
-      <header class="agent-chat-top">
-        <div class="agent-chat-identity">
-          <button class="agent-btn agent-btn-ghost" type="button" @click="router.push({ name: 'plaza' })">返回广场</button>
-          <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
-          <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
-          <strong>{{ title }}</strong>
-        </div>
-        <button class="agent-btn agent-btn-ghost" type="button" @click="logout">退出登录</button>
-      </header>
-      <p v-if="error" class="agent-error" style="padding: 0 20px;">{{ error }}</p>
-      <div class="agent-messages">
-        <div
-          v-for="(item, index) in messages"
-          :key="item.messageId || item.clientMessageId || `${item.role}-${index}`"
-          class="agent-msg-row"
-          :class="{ 'is-user': item.role === 'user', 'is-pending': item.pending, 'is-timeout': item.status === 'timeout', 'is-error': item.status === 'error' }"
-        >
-          <div v-if="item.role !== 'user'" class="agent-msg-avatar" aria-hidden="true">
-            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
-            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
-          </div>
-          <div class="agent-message-content">
-            <div v-if="item.createdAt" class="agent-message-time">{{ messageTime(item.createdAt) }}</div>
-            <div class="agent-bubble" :class="{ 'is-user': item.role === 'user', 'agent-bubble-pending': item.pending }" role="status" :aria-live="item.pending ? 'polite' : undefined">
-              <div v-if="item.content">{{ item.content }}</div>
-              <span v-if="item.pending" class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <img v-for="preview in item.previews.filter((row) => row.widget === 'image')" :key="preview.url" class="agent-media" :src="preview.url" alt="" />
-              <video v-for="preview in item.previews.filter((row) => row.widget === 'video')" :key="preview.url" class="agent-media" :src="preview.url" controls />
-            </div>
-          </div>
-        </div>
-        <div v-if="hitl.visible && !sending" class="agent-msg-row is-hitl">
-          <div class="agent-msg-avatar" aria-hidden="true">
-            <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
-            <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
-          </div>
-          <HitlCard :visible="true" :tool="hitl.tool" :prompt="hitl.prompt" :params="hitl.params" :disabled="sending" @approve="onApprove" @skip="onSkip" />
-        </div>
+    <header class="agent-chat-top">
+      <div class="agent-chat-identity">
+        <button class="agent-btn agent-btn-ghost" type="button" @click="router.push({ name: 'plaza' })">返回广场</button>
+        <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+        <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+        <strong>{{ title }}</strong>
       </div>
-      <form class="agent-composer" @submit.prevent="send">
-        <textarea v-model="draft" :disabled="!inputEnabled" placeholder="输入抖音运营问题、提醒或内容需求" @keydown.enter.exact.prevent="send" />
-        <button class="agent-btn" type="submit" :disabled="!inputEnabled">{{ sending ? "发送中..." : "发送" }}</button>
-      </form>
-    </section>
-    <ChatSidebar :sidebar="sidebar" />
+      <button class="agent-btn agent-btn-ghost" type="button" @click="logout">退出登录</button>
+    </header>
+    <div class="agent-chat-layout">
+      <section class="agent-chat-main">
+        <p v-if="error" class="agent-error agent-chat-error">{{ error }}</p>
+        <div class="agent-chat-body">
+          <div class="agent-chat-column">
+            <div class="agent-messages">
+              <div v-if="!messages.length && !hitl.visible" class="agent-empty">发送一条消息开始对话</div>
+              <div
+                v-for="(item, index) in messages"
+                :key="item.messageId || item.clientMessageId || `${item.role}-${index}`"
+                class="agent-msg-row"
+                :class="{ 'is-user': item.role === 'user', 'is-pending': item.pending, 'is-timeout': item.status === 'timeout', 'is-error': item.status === 'error' }"
+              >
+                <div v-if="item.role !== 'user'" class="agent-msg-avatar" aria-hidden="true">
+                  <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+                  <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+                </div>
+                <div class="agent-message-content">
+                  <div v-if="item.createdAt" class="agent-message-time">{{ messageTime(item.createdAt) }}</div>
+                  <div class="agent-bubble" :class="{ 'is-user': item.role === 'user', 'agent-bubble-pending': item.pending }" role="status" :aria-live="item.pending ? 'polite' : undefined">
+                    <div v-if="item.content">{{ item.content }}</div>
+                    <span v-if="item.pending" class="agent-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <img v-for="preview in item.previews.filter((row) => row.widget === 'image')" :key="preview.url" class="agent-media" :src="preview.url" alt="" />
+                    <video v-for="preview in item.previews.filter((row) => row.widget === 'video')" :key="preview.url" class="agent-media" :src="preview.url" controls />
+                  </div>
+                </div>
+              </div>
+              <div v-if="hitl.visible && !sending" class="agent-msg-row is-hitl">
+                <div class="agent-msg-avatar" aria-hidden="true">
+                  <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />
+                  <div v-else class="agent-avatar-fallback">{{ title.slice(0, 1) }}</div>
+                </div>
+                <HitlCard :visible="true" :tool="hitl.tool" :prompt="hitl.prompt" :params="hitl.params" :disabled="sending" @approve="onApprove" @skip="onSkip" />
+              </div>
+            </div>
+            <form class="agent-composer" @submit.prevent="send">
+              <textarea v-model="draft" :disabled="!inputEnabled" placeholder="输入抖音运营问题、提醒或内容需求" @keydown.enter.exact.prevent="send" />
+              <button class="agent-btn" type="submit" :disabled="!inputEnabled">{{ sending ? "发送中..." : "发送" }}</button>
+            </form>
+          </div>
+        </div>
+      </section>
+      <ChatSidebar :sidebar="sidebar" />
+    </div>
   </div>
 </template>

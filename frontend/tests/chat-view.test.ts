@@ -89,7 +89,7 @@ describe("ChatView HITL", () => {
     await flushPromises();
 
     expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
-    expect(agentCss).toMatch(/\.agent-message-content\s*\{[\s\S]*flex: 1 1 auto;[\s\S]*min-width: 0;/);
+    expect(agentCss).toMatch(/\.agent-message-content\s*\{[\s\S]*flex: 0 1 auto;[\s\S]*min-width: 0;/);
     expect(agentCss).toMatch(/\.agent-msg-row \.agent-bubble\s*\{[\s\S]*width: fit-content;[\s\S]*max-width: 100%;/);
     expect(agentCss).toMatch(/\.agent-bubble-pending\s*\{[\s\S]*min-width: 108px;[\s\S]*white-space: nowrap;/);
   });
@@ -194,6 +194,50 @@ describe("ChatView HITL", () => {
     expect(postMessage.mock.calls[0][2]).not.toBe(postMessage.mock.calls[1][2]);
   });
 
+
+
+  it("keeps the main chat column and readonly sidebar together", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.find(".agent-chat-main").exists()).toBe(true);
+    expect(wrapper.find(".agent-sidebar").exists()).toBe(true);
+    expect(wrapper.find(".agent-chat-column").exists()).toBe(true);
+    expect(wrapper.find(".agent-chat-column .agent-messages").exists()).toBe(true);
+    expect(wrapper.find(".agent-chat-column form.agent-composer").exists()).toBe(true);
+    expect(wrapper.find(".agent-chat-main > form.agent-composer").exists()).toBe(false);
+    expect(wrapper.find(".agent-page > form.agent-composer").exists()).toBe(false);
+    expect(wrapper.find(".agent-empty").exists()).toBe(true);
+    expect(agentCss).toMatch(/\.agent-chat-column\s*\{[\s\S]*max-width:\s*860px;/);
+    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*320px;/);
+    expect(agentCss).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+  });
+
+  it("aligns user messages right and assistant messages left inside the content column", async () => {
+    getThread.mockResolvedValue({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "你好", created_at: "2026-09-23T12:00:00+08:00" },
+        { role: "assistant", content: "您好，我是抖音运营助手", created_at: "2026-09-23T12:00:01+08:00" },
+      ],
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const rows = wrapper.findAll(".agent-chat-column .agent-messages .agent-msg-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].classes()).toContain("is-user");
+    expect(rows[0].find(".agent-msg-avatar").exists()).toBe(false);
+    expect(rows[1].classes()).not.toContain("is-user");
+    expect(rows[1].find(".agent-msg-avatar").exists()).toBe(true);
+    expect(agentCss).toMatch(/\.agent-msg-row\.is-user\s*\{[\s\S]*justify-content:\s*flex-end;/);
+    expect(agentCss).toMatch(/\.agent-msg-row\.is-user \.agent-message-content\s*\{[\s\S]*align-items:\s*flex-end;/);
+    expect(agentCss).toMatch(/\.agent-msg-row:not\(\.is-user\) \.agent-message-content\s*\{[\s\S]*align-items:\s*flex-start;/);
+    expect(agentCss).toMatch(/\.agent-bubble\s*\{[\s\S]*overflow-wrap:\s*anywhere;[\s\S]*word-break:\s*break-word;/);
+    expect(agentCss).toMatch(/\.agent-sidebar\s*\{[\s\S]*overflow-wrap:\s*anywhere;[\s\S]*word-break:\s*break-word;/);
+    expect(agentCss).toMatch(/\.agent-bubble-pending\s*\{[\s\S]*min-width:\s*108px;[\s\S]*white-space:\s*nowrap;/);
+    expect(agentCss).toMatch(/\.agent-typing-dots\s*\{[\s\S]*display:\s*inline-flex;/);
+  });
 
   it("ignores an older send response after a newer request has started", async () => {
     getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });

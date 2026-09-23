@@ -97,3 +97,12 @@ Live true-send must stagger with C's Feishu bot to avoid double send.
 - The graph injects `server_now`, `server_date`, `assistant_timezone`, and historical `[message_time=...]` markers into the model context. Prompt rules require the server context for date-sensitive decisions.
 - `find_successful_delivery_today()` only matches a `succeeded` workflow run in the current assistant timezone, scoped to user/agent instance, account, `video_id`, requested channel, and explicit `sent` items in `list_comment`/`list_message`. Failed/cancelled/timeout/running and prior dates do not deduplicate. No workflow/database schema or migration is added.
 - Vue chat identity is `messageId` first and `clientMessageId` second. Sending inserts a user optimistic bubble followed by a pending assistant bubble; server responses replace matching entries, while local pending/timeout/error and newer client-id messages survive stale responses. Chat requests use the longer `CHAT_TIMEOUT_MS`; timeout/error states remain visible. Server ISO offsets are displayed without converting to the browser timezone.
+
+## Vue chat page layout (2026-09-23)
+- Chat shell is `frontend/src/views/ChatView.vue` with read-only `ChatSidebar.vue`. Business send/merge/HITL/timeout behavior is unchanged.
+- Full-width top bar keeps plaza return, instance avatar/name, and logout. Below it, desktop layout is main chat plus a 320px sidebar; at `max-width: 900px` the sidebar stacks under the chat area.
+- Messages, empty state, and the text composer share a centered `.agent-chat-column` (`max-width: 860px`). The composer is not full-bleed across the main pane and still has no upload/model/publish controls.
+- Assistant rows align left inside the column and show the instance avatar; user rows align right inside the same column and do not reuse that avatar.
+- Pending assistant bubbles stay horizontal (`inline-flex`, `min-width: 108px`, `white-space: nowrap`). Long bubbles, media, HITL cards, composer input, and sidebar text use `overflow-wrap` / `word-break` so they cannot blow the page.
+- Sidebar remains catalog-only: capability description, development notes, mode, knowledge, workflows, and tools. Empty fields/arrays show placeholders.
+

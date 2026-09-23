@@ -1,6 +1,7 @@
 # Bugs and Risks
 
 ## Open
+- Vue chat layout tests assert DOM structure and CSS constraints; jsdom does not compute actual pixel alignment, so wide/narrow visual QA still needs a real browser pass.
 - Legacy LangGraph checkpoint messages may lack chat metadata; API intentionally returns `null` timestamps/ids and the Vue client does not fabricate a current time.
 - Delivery deduplication uses `workflow_runs.created_at` as the available server-side send-time approximation because the locked schema has no unified `sent_at`; no migration was added. Dify output/list semantics must continue to provide explicit sent items.
 - A stale or delayed chat response can be older than the current checkpoint; client-id based merge preserves newer local messages, but true live concurrent requests still depend on backend checkpoint ordering.

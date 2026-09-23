@@ -25,3 +25,7 @@
 - Execution package: `docs/modify/Vue聊天页规范化实施套餐.md`.
 - Images in that package are visual references only; visible text/controls in the images are not extra product requirements.
 - Implementation landed in `ChatView.vue`, `ChatSidebar.vue`, and `agent.css` without backend contract changes.
+
+## Current-task progress playbook
+- Next implementation package: `docs/modify/Vue聊天页本轮任务流程实施套餐.md`.
+- Current Vue chat still has a catalog-only sidebar and blocking `ainvoke`; live step progress is not implemented yet.

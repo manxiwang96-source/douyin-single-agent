@@ -1,20 +1,18 @@
 # Progress
 
 ## Current task
-已完成 Vue 聊天页规范化：统一主聊天内容列、消息左右对齐、输入框与消息同列，并规范只读侧栏。
+已整理「Vue 聊天页本轮任务流程」实施套餐，供新对话按文档完成代码交付。功能本身尚未实现。
 
 ## Completed
-- `frontend/src/views/ChatView.vue`：顶栏全宽；主区与侧栏分栏；消息列表和输入框放入居中 `.agent-chat-column`。
-- `frontend/src/styles/agent.css`：内容列最大宽度 860px；用户消息在列内右对齐，助手消息左对齐；pending 保持横向最小宽度；长文本与侧栏可换行；窄屏侧栏下移。
-- `frontend/src/components/ChatSidebar.vue`：保留只读字段，空数据使用友好占位。
-- `frontend/tests/chat-view.test.ts`、`frontend/tests/components.test.ts`：补充布局、对齐、溢出和空占位回归。
-- 未改后端 API、数据库、migration 或聊天状态机。
+- 新增 `docs/modify/Vue聊天页本轮任务流程实施套餐.md`：锁定右侧栏本轮步骤、HITL 同轮、Skip 收口、工具具名文案、400px 右栏与 860px 主列居中、轮询不得 `applyThread`。
+- 新增 `tests/test_task_progress_playbook_doc.py`：校验套餐存在、锁定决策和禁止项。
+- 未改聊天运行时代码、Dify、数据库或 Streamlit。
 
 ## Verification
-- 前端定向测试：`tests/chat-view.test.ts`、`tests/components.test.ts`、`tests/chat.test.ts` 通过。
-- 前端完整测试：38 passed。
-- 前端构建：`npm run build` 通过。
-- 后端测试：`pytest -q` 通过（205 passed, 6 skipped）。
+- `python tests/test_task_progress_playbook_doc.py`：4 passed。
+
+## Next
+新对话读取该套餐后实现 `serialize_thread().progress`、右侧任务框、发送/Approve/Skip 轮询，并补齐前后端测试与中文 commit。
 
 ## Commit
-- 规范 Vue 聊天页布局与侧边栏
+- 新增聊天右侧栏本轮任务流程实施套餐

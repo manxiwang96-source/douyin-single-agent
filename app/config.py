@@ -1,0 +1,199 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _parse_json_object(raw: str) -> dict[str, Any]:
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("REQUEST_EXTRAS must be a JSON object")
+    return data
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    openai_api_key: str = ""
+    openai_api_base_url: str = "https://aitokens.website/v1"
+    openai_api_model: str = "gpt-5.6-sol"
+
+    image_provider: str = "gateway"
+    image_model: str = "gpt-image-2"
+    image_quality: str = "low"
+    image_size: str = "1024x1536"
+    image_tier_param: str = "quality"
+    image_request_extras: str = ""
+
+    video_provider: str = "dashscope"
+    video_model: str = "wan3.0-video"
+    video_duration: int = 2
+    video_resolution: str = "480P"
+    video_size: str = "9:16"
+    video_aspect_param: str = "ratio"
+    video_poll_interval_s: float = 3
+    video_timeout_s: float = 180
+    video_request_extras: str = ""
+
+    dashscope_api_key: str = ""
+    dashscope_workspace_id: str = ""
+    dashscope_region: str = "cn-beijing"
+    dashscope_endpoint: str = "https://dashscope.aliyuncs.com/api/v1"
+
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_base_url: str = "https://api.siliconflow.cn/v1"
+    embedding_api_key: str = ""
+    embedding_dims: int = 1024
+
+    media_output_dir: str = "outputs"
+    app_host: str = "127.0.0.1"
+    app_port: int = 8000
+    streamlit_api_base: str = "http://127.0.0.1:8000"
+    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501,http://localhost:5173,http://127.0.0.1:5173"
+
+    postgres_uri: str = ""
+    assistant_city: str = "广州"
+    assistant_timezone: str = "Asia/Shanghai"
+    scheduler_enabled: bool = False
+    mcp_enabled: bool = True
+
+    smtp_host: str = "smtp.163.com"
+    smtp_port: int = 465
+    smtp_ssl: bool = True
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
+
+    dify_base_url: str = "http://192.168.1.158/v1"
+    dify_api_key: str = ""
+    dify_lead_app_id: str = "douyin-lead-discovery"
+    douyin_http_base_url: str = ""
+    douyin_http_api_token: str = ""
+    dify_timeout_s: float = 300
+    dify_live_enabled: bool = False
+
+    @field_validator(
+        "embedding_base_url",
+        "openai_api_base_url",
+        "dashscope_endpoint",
+        "streamlit_api_base",
+        "dify_base_url",
+        "douyin_http_base_url",
+    )
+    @classmethod
+    def strip_slash(cls, value: str) -> str:
+        return (value or "").rstrip("/")
+
+    @field_validator("image_provider")
+    @classmethod
+    def validate_image_provider(cls, value: str) -> str:
+        if value != "gateway":
+            raise ValueError(
+                f"Unsupported IMAGE_PROVIDER={value}; only gateway is implemented"
+            )
+        return value
+
+    @field_validator("video_provider")
+    @classmethod
+    def validate_video_provider(cls, value: str) -> str:
+        if value == "aliyun_wan3":
+            return "dashscope"
+        if value != "dashscope":
+            raise ValueError(
+                f"Unsupported VIDEO_PROVIDER={value}; only dashscope is implemented"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def default_smtp_addresses(self) -> "Settings":
+        if not self.smtp_from:
+            self.smtp_from = self.smtp_user
+        if not self.smtp_to:
+            self.smtp_to = self.smtp_user
+        return self
+
+    def image_extras(self) -> dict[str, Any]:
+        return _parse_json_object(self.image_request_extras)
+
+    def video_extras(self) -> dict[str, Any]:
+        return _parse_json_object(self.video_request_extras)
+
+    def cors_origin_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    def default_image_params(self) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "model": self.image_model,
+            self.image_tier_param: self.image_quality,
+            "size": self.image_size,
+        }
+        params.update(self.image_extras())
+        return params
+
+    def default_video_params(self) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "model": self.video_model,
+            "duration": int(self.video_duration),
+            "resolution": self.video_resolution,
+            self.video_aspect_param: self.video_size,
+        }
+        params.update(self.video_extras())
+        return params
+
+    def missing_production_fields(self) -> list[str]:
+        missing: list[str] = []
+        if not self.postgres_uri:
+            missing.append("POSTGRES_URI")
+        if not self.smtp_user:
+            missing.append("SMTP_USER")
+        if not self.smtp_password:
+            missing.append("SMTP_PASSWORD")
+        if not self.smtp_to:
+            missing.append("SMTP_TO")
+        return missing
+
+    def validate_production(self) -> None:
+        missing = self.missing_production_fields()
+        if missing:
+            raise RuntimeError(
+                "production settings missing required fields: " + ", ".join(missing)
+            )
+
+    def public_config(self) -> dict[str, Any]:
+        return {
+            "openai_api_model": self.openai_api_model,
+            "image_provider": self.image_provider,
+            "image_model": self.image_model,
+            "image_quality": self.image_quality,
+            "image_size": self.image_size,
+            "image_tier_param": self.image_tier_param,
+            "video_provider": self.video_provider,
+            "video_model": self.video_model,
+            "video_duration": int(self.video_duration),
+            "video_resolution": self.video_resolution,
+            "video_size": self.video_size,
+            "video_aspect_param": self.video_aspect_param,
+            "media_output_dir": self.media_output_dir,
+            "streamlit_api_base": self.streamlit_api_base,
+            "assistant_city": self.assistant_city,
+            "assistant_timezone": self.assistant_timezone,
+            "dify_lead_app_id": self.dify_lead_app_id,
+            "dify_live_enabled": self.dify_live_enabled,
+        }

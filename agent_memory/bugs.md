@@ -8,6 +8,7 @@
 - Real Dify/Douyin delivery was not triggered by automated tests; tests use `FakeDifyClient`.
 
 ## Closed
+- Vue pending assistant bubble width collapse: flex content could shrink to min-content and wrap each Chinese character vertically; fixed with expandable message content, fit-content bubbles, pending minimum width, and nowrap.
 - Server/browser timezone drift for displayed chat timestamps: server ISO offset is preserved in rendering.
 - User optimistic messages and pending assistant status no longer disappear on timeout/error.
 - Same text sent twice is identified by different client message ids, not text content.

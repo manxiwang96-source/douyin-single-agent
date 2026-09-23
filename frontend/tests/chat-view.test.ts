@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { mount, flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +11,7 @@ const getThread = vi.fn();
 const postMessage = vi.fn();
 const resumeThread = vi.fn();
 const fetchAuthBlob = vi.fn();
+const agentCss = readFileSync(resolve(process.cwd(), "src/styles/agent.css"), "utf-8");
 
 vi.mock("../src/api/agents", () => ({
   openAgentInstance: (...args: unknown[]) => openAgentInstance(...args),
@@ -74,6 +77,21 @@ describe("ChatView HITL", () => {
     expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
     expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
     expect(wrapper.get(".agent-composer button").attributes("disabled")).toBeDefined();
+  });
+
+  it("keeps the pending assistant bubble horizontal and expandable", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    postMessage.mockImplementation(() => new Promise(() => undefined));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get(".agent-composer textarea").setValue("你好");
+    await wrapper.get("form.agent-composer").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(agentCss).toMatch(/\.agent-message-content\s*\{[\s\S]*flex: 1 1 auto;[\s\S]*min-width: 0;/);
+    expect(agentCss).toMatch(/\.agent-msg-row \.agent-bubble\s*\{[\s\S]*width: fit-content;[\s\S]*max-width: 100%;/);
+    expect(agentCss).toMatch(/\.agent-bubble-pending\s*\{[\s\S]*min-width: 108px;[\s\S]*white-space: nowrap;/);
   });
 
   it("shows a pending assistant bubble while waiting for a reply", async () => {

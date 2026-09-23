@@ -20,6 +20,9 @@ def test_system_prompt_is_douyin_operations_assistant():
     assert "comment,message" in SYSTEM_PROMPT
     assert "comment,dm" in SYSTEM_PROMPT
     assert "然后立刻调用 discover_douyin_leads" in SYSTEM_PROMPT
+    assert "job_status" in SYSTEM_PROMPT
+    assert "written" in SYSTEM_PROMPT
+    assert "message_details" in SYSTEM_PROMPT
 
 
 def test_fastapi_title_is_douyin_operations_assistant(runtime):

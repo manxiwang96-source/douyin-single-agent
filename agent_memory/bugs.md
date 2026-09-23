@@ -1,7 +1,7 @@
 # Bugs and Risks
 
 ## Open
-- 已关闭：Dify 真实状态回传已落地并通过相关及完整 pytest；后续若 DSL 输出结构变化，需继续以实际 `job_response`/列表响应样本补回归测试。
+- 已关闭：Dify 真实状态回传已落地并通过相关及完整 pytest；`job_response` 优先级、错误别名和提示词约束已有回归测试。后续若 DSL 输出结构变化，需继续以实际 `job_response`/列表响应样本补回归测试。
 - 当前有效限制：`job_response`、`list_message`、`list_comment` 仍按 DSL 原始字符串/JSON 兼容解析；缺失或未知状态保持 `unverified`，不能默认 `sent`。
 - DSL 的列表节点未明确绑定本次 `job_id`/`run_id` 时，历史列表记录混入本次结果的风险仍存在；本次只记录风险，不修改 C 的 DSL。
 - Streamlit v1 没有任务取消页；取消仍走阶段 5 的 HTTP/工具。

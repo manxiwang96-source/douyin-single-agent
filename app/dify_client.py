@@ -38,16 +38,24 @@ def parse_json_value(value: Any) -> Any:
         return value
 
 
-def _first_error(value: Any) -> str | None:
+def extract_dify_error(value: Any) -> str | None:
+    """Extract a Dify-provided error without inventing a delivery reason."""
     payload = parse_json_value(value)
-    if isinstance(payload, dict):
-        nested = _as_dict(payload.get("data"))
-        error = payload.get("error") or payload.get("message") or nested.get("error") or nested.get("message")
-        if error:
+    if not isinstance(payload, dict):
+        return None
+    for source in (payload, _as_dict(payload.get("data"))):
+        for key in ("error", "reason", "error_message", "failure_reason", "message"):
+            error = source.get(key)
+            if error is None or not str(error).strip():
+                continue
             if isinstance(error, (dict, list)):
                 return json.dumps(error, ensure_ascii=False)
             return str(error)
     return None
+
+
+def _first_error(value: Any) -> str | None:
+    return extract_dify_error(value)
 
 
 def normalize_job_status(status: Any) -> str:

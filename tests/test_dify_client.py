@@ -256,3 +256,19 @@ def test_parse_dify_payload_prefers_job_response_status_and_root_status_is_suppo
     assert result["dify_workflow_status"] == "succeeded"
     assert result["job_status"] == "timeout"
     assert result["status"] == "timeout"
+
+
+def test_parse_dify_payload_reads_nested_error_aliases():
+    result = parse_dify_workflow_payload(
+        {
+            "data": {
+                "status": "succeeded",
+                "outputs": {
+                    "job_response": '{"data":{"status":"failed","error_message":"账号未登录"}}',
+                },
+            }
+        }
+    )
+    assert result["job_status"] == "failed"
+    assert result["status"] == "failed"
+    assert result["error"] == "账号未登录"

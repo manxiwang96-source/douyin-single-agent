@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from app.dify_client import normalize_job_status, parse_json_value
+from app.dify_client import extract_dify_error, normalize_job_status, parse_json_value
 from app.repository import (
     DEFAULT_WORKFLOW_CODE,
     ENGAGE_COMMENT_STATUSES,
@@ -154,8 +154,9 @@ def _delivery_items(value: Any) -> tuple[list[Any], str | None]:
         return parsed, None
     if not isinstance(parsed, dict):
         return [], "delivery response is not a list"
-    if parsed.get("ok") is False or parsed.get("error") or parsed.get("message"):
-        return [], _first_text(parsed, "error", "message") or "delivery request failed"
+    response_error = extract_dify_error(parsed)
+    if parsed.get("ok") is False or response_error:
+        return [], response_error or "delivery request failed"
     for key in ("data", "items", "list", "comments", "messages", "result"):
         if isinstance(parsed.get(key), list):
             return parsed[key], None
@@ -218,8 +219,8 @@ def _delivery_result(outputs: Any, *, job_status: str) -> tuple[dict[str, dict[s
                 delivery[channel]["failed"] += 1
             else:
                 delivery[channel]["unverified"] += 1
-            if status in {"failed", "needs_login", "cancelled"} and item.get("error"):
-                errors.append(str(item["error"]))
+            if status in {"failed", "needs_login", "cancelled"}:
+                errors.append(extract_dify_error(item) or "Dify 未提供具体失败原因")
             if channel == "dms":
                 detail = dict(item)
                 if dify_status != status:
@@ -400,25 +401,40 @@ def run_discover_douyin_leads(
     dify_workflow_status = str(result.get("dify_workflow_status") or "unverified")
     workflow_ok = bool(result.get("workflow_ok"))
     job_status = normalize_job_status(result.get("job_status"))
-    if job_status == "unverified" and isinstance(outputs, dict):
+    if isinstance(outputs, dict):
         response = parse_json_value(outputs.get("job_response"))
         response_dict = response if isinstance(response, dict) else {}
         response_data = response_dict.get("data") if isinstance(response_dict.get("data"), dict) else {}
-        job_status = normalize_job_status(response_data.get("status") or response_dict.get("status") or outputs.get("job_status"))
+        response_raw = response_data.get("status") or response_dict.get("status")
+        if response_raw not in (None, ""):
+            job_status = normalize_job_status(response_raw)
+        elif job_status == "unverified":
+            job_status = normalize_job_status(outputs.get("job_status"))
     status = str(result.get("status") or (job_status if job_status != "unverified" else "failed"))
     if status not in WORKFLOW_RUN_STATUSES and status not in {"unverified"}:
         status = "failed"
     job_id = result.get("job_id") or outputs.get("job_id")
     workflow_run_id = result.get("workflow_run_id")
     task_error = result.get("error")
+    job_response_error = extract_dify_error(outputs.get("job_response")) if isinstance(outputs, dict) else None
+    if not task_error and job_status in {"failed", "timeout", "cancelled"}:
+        task_error = job_response_error
     if job_status == "unverified" and not task_error:
         task_error = "job status unavailable"
     if job_status == "failed" and not task_error:
         task_error = "job failed"
     delivery, message_details, delivery_errors, delivery_ok = _delivery_result(outputs, job_status=job_status)
-    error = task_error or (delivery_errors[0] if delivery_errors else None)
-    if job_status == "succeeded" and delivery_errors and not error:
-        error = delivery_errors[0]
+    error_parts: list[str] = []
+    for candidate in [task_error, *delivery_errors]:
+        candidate_text = str(candidate) if candidate else ""
+        if (
+            task_error == "job status unavailable"
+            and candidate_text.endswith(": delivery response unavailable")
+        ):
+            continue
+        if candidate_text and candidate_text not in error_parts:
+            error_parts.append(candidate_text)
+    error = "; ".join(error_parts) or None
     if job_status == "succeeded" and delivery_ok:
         status = "succeeded"
     elif job_status == "succeeded" and any(

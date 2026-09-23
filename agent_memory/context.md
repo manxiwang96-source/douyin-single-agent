@@ -44,5 +44,6 @@ Deployment B: server Postgres is source of truth. Do not ALTER LangGraph officia
 
 - `app/dify_client.py` parses outer `dify_workflow_status` separately from DSL `job_status`/`job_response`; `job_response.data.status` or root `status` wins, and missing/unknown job state is `unverified`.
 - `app/leads.py` returns `workflow_ok`, `delivery_ok`, `status`, `delivery`, `message_details`, `job_id`, `workflow_run_id`, and actual Dify errors. Only explicit per-item success is `sent`; list error objects never become records; `written` is local persistence only.
-- Outer workflow `succeeded` cannot override inner `failed/error/cancelled/timeout`; no job state or unknown state never reports success. The persisted workflow row maps user-visible `unverified` to existing database `failed` status.
+- Outer workflow `succeeded` cannot override inner `failed/error/cancelled/timeout`; `job_response` status has priority over the loop variable, no job state or unknown state never reports success. Dify errors use `error/reason/error_message/failure_reason/message` when present. The persisted workflow row maps user-visible `unverified` to existing database `failed` status.
+- `app/prompts.py` instructs the assistant to report only `job_status` and explicit `delivery.*.sent`, never outer success or `written`, and to show Dify-provided `message_details`.
 - Scope remains backend Dify parsing only. C's DSL, Vue, Streamlit, and phases 0–7 were not edited.

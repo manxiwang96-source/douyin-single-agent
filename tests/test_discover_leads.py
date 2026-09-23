@@ -291,7 +291,7 @@ def test_outer_success_inner_job_failed_is_not_success(runtime, settings):
     assert result["status"] == "failed"
     assert result["dify_workflow_status"] == "succeeded"
     assert result["job_status"] == "failed"
-    assert result["error"] == "当前账号未登录"
+    assert result["error"] == "当前账号未登录; comments: 评论接口失败; dms: 私信接口失败"
     assert result["delivery"]["comments"] == {"sent": 0, "failed": 1, "unverified": 0}
     assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
     assert result["message_details"] == []
@@ -380,6 +380,65 @@ def test_list_error_objects_are_not_records_and_dm_details_preserve_dify_fields(
     dms = repo.list_engage_dms(user.user_id, instance.agent_instance_id)
     assert len(dms) == 1
     assert dms[0].status == "sent"
+
+
+def test_job_response_and_list_message_error_are_authoritative(runtime, settings):
+    result, repo, user, instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "workflow_run_id": "wf-authoritative",
+            "job_id": "job-authoritative",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"data":{"status":"failed","error_message":"账号未登录"}}',
+                "list_comment": [],
+                "list_message": '{"ok":false,"error":"私信列表失败"}',
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is False
+    assert result["status"] == "failed"
+    assert result["job_status"] == "failed"
+    assert result["error"] == "账号未登录; dms: 私信列表失败"
+    assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert repo.list_engage_dms(user.user_id, instance.agent_instance_id) == []
+
+
+def test_item_failure_reason_alias_is_returned_without_using_written_count(runtime, settings):
+    result, _repo, _user, _instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "job_status": "succeeded",
+            "outputs": {
+                "job_response": '{"status":"succeeded"}',
+                "list_comment": [],
+                "list_message": [
+                    {
+                        "message_id": "m-reason",
+                        "status": "failed",
+                        "reason": "私信窗口打开失败",
+                    }
+                ],
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is False
+    assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert result["error"] == "私信窗口打开失败"
+    assert result["message_details"][0]["reason"] == "私信窗口打开失败"
 
 
 def test_written_count_does_not_override_failed_delivery(runtime, settings):

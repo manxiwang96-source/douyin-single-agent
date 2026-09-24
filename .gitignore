@@ -8,3 +8,17 @@ __pycache__/
 .streamlit/
 frontend/node_modules/
 frontend/dist/
+
+# Local working docs and agent notes, not published
+AGENTS.md
+agent_memory/
+docs/
+memory-bank/
+stage/
+.local/
+frontend/src/standalone/
+
+# Documentation-only tests
+tests/test_*_doc.py
+tests/test_memory_bank_docs.py
+

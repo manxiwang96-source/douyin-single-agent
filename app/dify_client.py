@@ -38,6 +38,19 @@ def parse_json_value(value: Any) -> Any:
         return value
 
 
+def parse_optional_bool(value: Any) -> bool | None:
+    value = parse_json_value(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text == "true":
+            return True
+        if text == "false":
+            return False
+    return None
+
+
 def extract_dify_error(value: Any) -> str | None:
     """Extract a Dify-provided error without inventing a delivery reason."""
     payload = parse_json_value(value)
@@ -176,7 +189,33 @@ def parse_dify_workflow_payload(payload: Any, *, http_status: int | None = None)
         error = "job timeout"
     if not error and job_status == "cancelled":
         error = "job cancelled"
-    ok = workflow_ok and job_status == "succeeded" and not error
+    lead_ok = parse_optional_bool(outputs.get("lead_ok"))
+    lead_status = str(outputs.get("lead_status") or "").strip() or None
+    lead_error = outputs.get("lead_error")
+    if isinstance(lead_error, (dict, list)):
+        lead_error = json.dumps(lead_error, ensure_ascii=False)
+    lead_error = str(lead_error).strip() if lead_error not in (None, "") else None
+    if workflow_ok and lead_ok is None:
+        if job_status in {"failed", "timeout", "cancelled"}:
+            # Preserve a confirmed process failure while refusing to infer
+            # business success without lead_ok.
+            status = job_status
+        else:
+            status = "unverified"
+            error = error or "lead result unavailable"
+    elif workflow_ok and lead_ok is False:
+        status = "failed"
+        error = error or lead_error or "lead result failed"
+    elif workflow_ok and lead_ok is True:
+        status = "succeeded"
+        error = None if not lead_error else lead_error
+    video_status = str(outputs.get("video_status") or "").strip() or None
+    video_id = outputs.get("video_id")
+    summary = outputs.get("summary")
+    if isinstance(summary, (dict, list)):
+        summary = json.dumps(summary, ensure_ascii=False)
+    summary = str(summary).strip() if summary not in (None, "") else None
+    ok = workflow_ok and lead_ok is True and not lead_error
     return {
         "ok": ok,
         "workflow_ok": workflow_ok,
@@ -185,6 +224,12 @@ def parse_dify_workflow_payload(payload: Any, *, http_status: int | None = None)
         "job_status_raw": job_status_raw,
         "job_id": outputs.get("job_id"),
         "workflow_run_id": str(workflow_run_id) if workflow_run_id else None,
+        "lead_ok": lead_ok,
+        "lead_status": lead_status,
+        "lead_error": lead_error,
+        "video_status": video_status,
+        "video_id": video_id,
+        "summary": summary,
         "status": status,
         "outputs": outputs or None,
         "error": str(error) if error else None,

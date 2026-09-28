@@ -13,7 +13,7 @@ from langgraph.types import Command, interrupt
 from app.knowledge import format_kb_hits, kb_namespace, profile_namespace
 from app.knowledge import search_kb as kb_search
 from app.job_control import run_cancel_job, run_list_jobs
-from app.leads import json_tool_result, run_discover_douyin_leads
+from app.leads import json_tool_result, run_discover_leads
 from app.media_paths import media_url_for
 from app.repository import NotFoundError
 
@@ -302,34 +302,42 @@ def build_tools(
     if business_repo is not None and dify_client is not None:
 
         @tool
-        def discover_douyin_leads(
+        def discover_leads(
+            platform: str,
             account: str,
             keyword: str = "",
             video_id: str = "",
+            url: str = "",
             limit: int = 0,
             channels: str = "",
+            max_comments: str = "",
+            select: str = "",
             list_status: str = "",
         ) -> str:
-            """Find Douyin comment/DM leads and send replies. This really sends.
+            """Find leads on Douyin or Xiaohongshu and send replies. This really sends.
 
-            account is required. Pass video_id or keyword, not both. If video_id is set, omit keyword and do not ask for it.
-            Omit channels; the worker sends comment,message. Never pass comment,dm or Chinese channel names.
+            platform must be douyin or xiaohongshu. account is required. Pass at least one of keyword, video_id, or url.
+            Omit channels when possible; the worker defaults to comment,message.
             """
-            result = run_discover_douyin_leads(
+            result = run_discover_leads(
                 settings=settings,
                 business_repo=business_repo,
                 dify_client=dify_client,
                 configurable=_runtime_configurable(),
+                platform=platform,
                 account=account,
                 keyword=keyword,
                 video_id=video_id,
+                url=url,
                 limit=limit or None,
                 channels=channels,
+                max_comments=max_comments,
+                select=select,
                 list_status=list_status,
             )
             return json_tool_result(result)
 
-        tools.append(discover_douyin_leads)
+        tools.append(discover_leads)
 
     if business_repo is not None:
 

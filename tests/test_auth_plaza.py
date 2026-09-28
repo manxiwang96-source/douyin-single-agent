@@ -147,7 +147,7 @@ def test_create_binds_workflow_and_seeds_demo_docs(runtime):
     codes = [item["code"] for item in body["workflows"]]
     assert "douyin-lead-discovery" in codes
     names = [item["name"] for item in body["tools"]]
-    assert "discover_douyin_leads" in names
+    assert "discover_leads" in names
     filenames = {item["filename"] for item in body["knowledge_documents"]}
     assert "compliance-boundary.md" in filenames
     assert "comment-dm-scripts.md" in filenames

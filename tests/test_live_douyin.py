@@ -6,7 +6,7 @@ import pytest
 
 from app.config import Settings
 from app.dify_client import DifyClient
-from app.leads import run_discover_douyin_leads
+from app.leads import run_discover_leads
 from app.repository import DEFAULT_WORKFLOW_CODE, InMemoryBusinessRepository
 
 pytestmark = pytest.mark.skipif(
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_live_discover_douyin_leads_true_send_writes_workflow_run():
+def test_live_discover_leads_true_send_writes_workflow_run():
     settings = Settings()
     if not settings.dify_live_enabled:
         pytest.skip("DIFY_LIVE_ENABLED is not true")
@@ -31,7 +31,7 @@ def test_live_discover_douyin_leads_true_send_writes_workflow_run():
     instance = repo.create_agent_instance(user.user_id, "live-douyin", intro="live smoke")
     repo.bind_workflow(user.user_id, instance.agent_instance_id, DEFAULT_WORKFLOW_CODE)
     client = DifyClient(settings)
-    result = run_discover_douyin_leads(
+    result = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
@@ -41,6 +41,7 @@ def test_live_discover_douyin_leads_true_send_writes_workflow_run():
             "agent_instance_id": str(instance.agent_instance_id),
             "allowed_workflow_codes": [DEFAULT_WORKFLOW_CODE],
         },
+        platform="douyin",
         account=account,
         video_id=video_id,
     )

@@ -51,8 +51,8 @@ describe("ChatView HITL", () => {
       development_notes: "能力只展示不勾选",
       agent_mode_label: "单智能体模式",
       knowledge_documents: [{ title: "faq", filename: "faq.md" }],
-      workflows: [{ code: "douyin-lead-discovery", display_name: "抖音线索发现与触达" }],
-      tools: [{ name: "discover_douyin_leads", display_name: "抖音线索发现" }],
+      workflows: [{ code: "douyin-lead-discovery", display_name: "线索发现与触达" }],
+      tools: [{ name: "discover_leads", display_name: "线索发现" }],
     });
     fetchAuthBlob.mockRejectedValue(new Error("no avatar"));
     getThread.mockReset();
@@ -123,12 +123,12 @@ describe("ChatView HITL", () => {
       interrupt: null,
       messages: [
         { role: "user", content: "你好" },
-        { role: "assistant", content: "您好，我是抖音运营助手" },
+        { role: "assistant", content: "您好，我是运营助手" },
       ],
     });
     await flushPromises();
     expect(wrapper.find(".agent-bubble-pending").exists()).toBe(false);
-    expect(wrapper.text()).toContain("您好，我是抖音运营助手");
+    expect(wrapper.text()).toContain("您好，我是运营助手");
     const assistantRow = wrapper.findAll(".agent-msg-row").find((row) => !row.classes().includes("is-user"));
     expect(assistantRow?.find(".agent-msg-avatar").exists()).toBe(true);
   });
@@ -139,7 +139,7 @@ describe("ChatView HITL", () => {
       interrupt: null,
       messages: [
         { role: "user", content: "你好" },
-        { role: "assistant", content: "您好，我是抖音运营助手" },
+        { role: "assistant", content: "您好，我是运营助手" },
       ],
     });
     const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
@@ -151,7 +151,7 @@ describe("ChatView HITL", () => {
     expect(rows[0].text()).toContain("你好");
     expect(rows[1].classes()).not.toContain("is-user");
     expect(rows[1].find(".agent-msg-avatar").exists()).toBe(true);
-    expect(rows[1].text()).toContain("您好，我是抖音运营助手");
+    expect(rows[1].text()).toContain("您好，我是运营助手");
   });
 
   it("keeps user and timeout assistant state when chat request times out", async () => {
@@ -204,6 +204,7 @@ describe("ChatView HITL", () => {
     const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.find(".agent-chat-main").exists()).toBe(true);
+    expect(wrapper.find(".agent-task-rail").exists()).toBe(true);
     expect(wrapper.find(".agent-sidebar").exists()).toBe(true);
     expect(wrapper.find(".agent-chat-column").exists()).toBe(true);
     expect(wrapper.find(".agent-chat-column .agent-messages").exists()).toBe(true);
@@ -211,15 +212,22 @@ describe("ChatView HITL", () => {
     expect(wrapper.find(".agent-chat-main > form.agent-composer").exists()).toBe(false);
     expect(wrapper.find(".agent-page > form.agent-composer").exists()).toBe(false);
     expect(wrapper.find(".agent-empty").exists()).toBe(true);
-    expect(wrapper.text()).toContain("当前任务");
-    expect(wrapper.text()).toContain("暂无进行中的任务");
+    expect(wrapper.find(".agent-sidebar .agent-task-progress").exists()).toBe(false);
+    expect(wrapper.find(".agent-task-rail .agent-task-progress").exists()).toBe(true);
+    expect(wrapper.get(".agent-task-rail").text()).toContain("当前任务");
+    expect(wrapper.get(".agent-task-rail").text()).toContain("暂无进行中的任务");
+    expect(wrapper.get(".agent-sidebar").text()).not.toContain("当前任务");
+    expect(wrapper.get(".agent-sidebar").text()).not.toContain("暂无进行中的任务");
     expect(agentCss).toMatch(/\.agent-chat-column\s*\{[\s\S]*max-width:\s*860px;/);
-    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*400px;/);
+    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*400px\s*minmax\(0,\s*1fr\)\s*400px;/);
+    expect(agentCss).toMatch(/\.agent-chat-layout\s*\{[\s\S]*grid-template-areas:\s*"task main catalog"/);
     expect(agentCss).toMatch(/\.agent-chat\s*\{[\s\S]*height:\s*100vh;[\s\S]*overflow:\s*hidden;/);
+    expect(agentCss).toMatch(/\.agent-task-rail\s*\{[\s\S]*overflow:\s*hidden;/);
     expect(agentCss).toMatch(/\.agent-sidebar\s*\{[\s\S]*overflow:\s*hidden;/);
     expect(agentCss).toMatch(/\.agent-task-progress\s*\{[\s\S]*overflow-y:\s*auto;/);
     expect(agentCss).toMatch(/\.agent-sidebar-catalog\s*\{[\s\S]*overflow-y:\s*auto;/);
     expect(agentCss).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*\.agent-chat-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(agentCss).toMatch(/@media \(max-width: 900px\)\s*\{[\s\S]*\.agent-chat-layout\s*\{[\s\S]*grid-template-areas:\s*"main"\s*"task"\s*"catalog"/);
   });
 
   it("aligns user messages right and assistant messages left inside the content column", async () => {
@@ -228,7 +236,7 @@ describe("ChatView HITL", () => {
       interrupt: null,
       messages: [
         { role: "user", content: "你好", created_at: "2026-09-23T12:00:00+08:00" },
-        { role: "assistant", content: "您好，我是抖音运营助手", created_at: "2026-09-23T12:00:01+08:00" },
+        { role: "assistant", content: "您好，我是运营助手", created_at: "2026-09-23T12:00:01+08:00" },
       ],
     });
     const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
@@ -366,16 +374,16 @@ describe("ChatView HITL", () => {
       steps: [
         { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
         {
-          id: "tool:discover_douyin_leads:c1",
+          id: "tool:discover_leads:c1",
           kind: "tool",
-          tool: "discover_douyin_leads",
-          label: "正在运行「抖音线索发现与触达」",
+          tool: "discover_leads",
+          label: "正在运行「线索发现与触达」",
           status: "running",
           spin: true,
           children: [
-            { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
-            { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "running", spin: true },
-            { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "失败节点", status: "failed", spin: false },
+            { id: "dify:n1:0", kind: "dify_node", tool: "discover_leads", label: "开始", status: "done", spin: false },
+            { id: "dify:n2:1", kind: "dify_node", tool: "discover_leads", label: "请求抖音", status: "running", spin: true },
+            { id: "dify:n3:2", kind: "dify_node", tool: "discover_leads", label: "失败节点", status: "failed", spin: false },
           ],
         },
       ],
@@ -383,7 +391,7 @@ describe("ChatView HITL", () => {
     await flushPromises();
     expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
     expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("提前草稿");
-    expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「抖音线索发现与触达」");
+    expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「线索发现与触达」");
     expect(wrapper.get(".agent-task-progress").text()).toContain("开始");
     expect(wrapper.get(".agent-task-progress").text()).toContain("请求抖音");
     expect(wrapper.get(".agent-task-progress").text()).toContain("失败节点");

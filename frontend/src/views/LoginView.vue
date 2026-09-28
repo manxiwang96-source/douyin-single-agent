@@ -44,7 +44,7 @@ async function submit() {
 <template>
   <div class="agent-page agent-login">
     <div class="agent-login-card">
-      <h1 class="agent-title">抖音运营助手</h1>
+      <h1 class="agent-title">运营助手</h1>
       <p class="agent-subtitle">登录后进入智能体广场，再点卡片开始对话。</p>
       <div class="agent-tabs">
         <button class="agent-tab" :class="{ 'is-active': mode === 'login' }" type="button" @click="mode = 'login'">登录</button>

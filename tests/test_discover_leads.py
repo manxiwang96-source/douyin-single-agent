@@ -7,7 +7,7 @@ from datetime import timedelta
 from langchain_core.messages import HumanMessage
 
 from app.dify_client import DifyClient
-from app.leads import build_dify_inputs, normalize_lead_channels, run_discover_douyin_leads
+from app.leads import build_dify_inputs, normalize_lead_channels, run_discover_leads
 from app.repository import DEFAULT_WORKFLOW_CODE, utcnow
 from tests.fakes import FakeDifyClient, ai_text, ai_tool
 from tests.graph_helpers import graph_config
@@ -32,6 +32,7 @@ def _configurable(user, instance, *, allowed=None):
 def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings):
     inputs = build_dify_inputs(
         settings,
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
         limit=5,
@@ -47,7 +48,7 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     assert inputs["assess"] is True
     assert inputs["base_url"] == "http://192.168.1.33:8765"
     assert "api_token" not in inputs
-    defaults = build_dify_inputs(settings, account="shop1", video_id="v9")
+    defaults = build_dify_inputs(settings, platform="douyin", account="shop1", video_id="v9")
     assert defaults["platform"] == "douyin"
     assert defaults["limit"] == 20
     assert defaults["channels"] == "comment,message"
@@ -60,7 +61,7 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     filled = settings.model_copy(
         update={"douyin_http_base_url": "http://c.example.test", "douyin_http_api_token": "tok"}
     )
-    with_http = build_dify_inputs(filled, account="shop1", video_id="v9")
+    with_http = build_dify_inputs(filled, platform="xiaohongshu", account="shop1", video_id="v9")
     assert with_http["base_url"] == "http://c.example.test"
     assert with_http["api_token"] == "tok"
     assert with_http["video_id"] == "v9"
@@ -82,6 +83,7 @@ def test_normalize_lead_channels_maps_aliases_and_rejects_invalid():
 def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_channels(settings):
     inputs = build_dify_inputs(
         settings,
+        platform="douyin",
         account="wmq",
         keyword="敏感肌",
         video_id="7674838941266087168",
@@ -93,6 +95,7 @@ def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_cha
     assert inputs["channels"] == "comment,message"
     chinese = build_dify_inputs(
         settings,
+        platform="douyin",
         account="wmq",
         video_id="7674838941266087168",
         channels="评论、私信",
@@ -101,11 +104,68 @@ def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_cha
     assert "keyword" not in chinese
 
 
+def test_build_dify_inputs_supports_xiaohongshu_url_and_optional_fields(settings):
+    inputs = build_dify_inputs(
+        settings,
+        platform="xiaohongshu",
+        account="creator-1",
+        url="https://www.xiaohongshu.com/explore/note-1",
+        max_comments="30",
+        select="true",
+        list_status="sent",
+    )
+    assert inputs["platform"] == "xiaohongshu"
+    assert inputs["url"].endswith("note-1")
+    assert inputs["max_comments"] == "30"
+    assert inputs["select"] == "true"
+    assert inputs["list_status"] == "sent"
+
+
+def test_lead_ok_controls_business_result_independently_of_job_status(runtime, settings):
+    success, *_ = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "no_hit",
+            "summary": "未发现符合条件的线索",
+            "job_status": "succeeded",
+            "outputs": {"lead_ok": True, "lead_status": "no_hit", "job_status": "succeeded"},
+        },
+    )
+    failure, *_ = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": False,
+            "status": "failed",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "lead_ok": False,
+            "lead_status": "failed",
+            "lead_error": "发送失败",
+            "job_status": "succeeded",
+            "outputs": {"lead_ok": False, "lead_status": "failed", "job_status": "succeeded"},
+        },
+    )
+    assert success["ok"] is True
+    assert success["status"] == "succeeded"
+    assert success["lead_status"] == "no_hit"
+    assert failure["ok"] is False
+    assert failure["status"] == "failed"
+    assert failure["error"] == "发送失败"
+
+
 def test_missing_account_or_keyword_does_not_call_dify(runtime, settings):
     repo = runtime.business_repo
     user, instance = _bound_owner(repo)
     client = FakeDifyClient()
-    missing_account = run_discover_douyin_leads(
+    missing_account = run_discover_leads(platform="douyin",
+
         settings=settings,
         business_repo=repo,
         dify_client=client,
@@ -113,11 +173,12 @@ def test_missing_account_or_keyword_does_not_call_dify(runtime, settings):
         account="",
         keyword="敏感肌",
     )
-    missing_target = run_discover_douyin_leads(
+    missing_target = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop1",
         keyword="",
         video_id="",
@@ -133,11 +194,12 @@ def test_unbound_workflow_is_rejected(runtime, settings):
     user = repo.create_user("unbound", "hash-not-secret")
     instance = repo.create_agent_instance(user.user_id, "unbound-a")
     client = FakeDifyClient()
-    result = run_discover_douyin_leads(
+    result = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance, allowed=[]),
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
     )
@@ -150,7 +212,8 @@ def test_paused_and_needs_login_accounts_are_blocked_without_projection_row_allo
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "acct-a")
     client = FakeDifyClient()
-    allowed = run_discover_douyin_leads(
+    allowed = run_discover_leads(platform="douyin",
+
         settings=settings,
         business_repo=repo,
         dify_client=client,
@@ -163,19 +226,21 @@ def test_paused_and_needs_login_accounts_are_blocked_without_projection_row_allo
     repo.upsert_douyin_account(user.user_id, instance.agent_instance_id, "shop-paused", status="paused")
     repo.upsert_douyin_account(user.user_id, instance.agent_instance_id, "shop-login", status="needs_login")
     client.calls.clear()
-    paused = run_discover_douyin_leads(
+    paused = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop-paused",
         keyword="敏感肌",
     )
-    login = run_discover_douyin_leads(
+    login = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop-login",
         video_id="v1",
     )
@@ -190,11 +255,12 @@ def test_successful_fake_run_writes_workflow_and_engage_rows(runtime, settings):
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "write-a")
     client = FakeDifyClient()
-    result = run_discover_douyin_leads(
+    result = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
         limit=3,
@@ -227,11 +293,12 @@ def test_unknown_outputs_are_unverified_and_record_workflow_run(runtime, setting
             "error": None,
         }
     )
-    result = run_discover_douyin_leads(
+    result = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
     )
@@ -252,11 +319,12 @@ def _run_with_result(runtime, settings, result):
     instance = repo.create_agent_instance(user.user_id, f"status-{len(repo._workflow_runs)}", intro="ops")
     repo.bind_workflow(user.user_id, instance.agent_instance_id, DEFAULT_WORKFLOW_CODE)
     client = FakeDifyClient(result)
-    output = run_discover_douyin_leads(
+    output = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
     )
@@ -272,6 +340,8 @@ def test_outer_success_inner_job_failed_is_not_success(runtime, settings):
             "status": "failed",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": False,
+            "lead_status": "needs_login",
             "workflow_run_id": "wf-failed",
             "job_id": "job-failed",
             "job_status": "failed",
@@ -307,6 +377,8 @@ def test_cancelled_and_unknown_job_status_are_not_success(runtime, settings):
             "status": "cancelled",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": False,
+            "lead_status": "failed",
             "job_status": "cancelled",
             "outputs": {"job_status": "cancelled"},
             "error": "job cancelled",
@@ -341,6 +413,8 @@ def test_list_error_objects_are_not_records_and_dm_details_preserve_dify_fields(
             "status": "succeeded",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
             "workflow_run_id": "wf-delivery",
             "job_id": "job-delivery",
             "job_status": "succeeded",
@@ -362,7 +436,7 @@ def test_list_error_objects_are_not_records_and_dm_details_preserve_dify_fields(
             "error": None,
         },
     )
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert result["delivery_ok"] is False
     assert result["delivery"]["comments"] == {"sent": 0, "failed": 1, "unverified": 0}
     assert result["delivery"]["dms"] == {"sent": 1, "failed": 0, "unverified": 0}
@@ -391,6 +465,8 @@ def test_job_response_and_list_message_error_are_authoritative(runtime, settings
             "status": "succeeded",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
             "workflow_run_id": "wf-authoritative",
             "job_id": "job-authoritative",
             "job_status": "succeeded",
@@ -403,8 +479,8 @@ def test_job_response_and_list_message_error_are_authoritative(runtime, settings
             "error": None,
         },
     )
-    assert result["ok"] is False
-    assert result["status"] == "failed"
+    assert result["ok"] is True
+    assert result["status"] == "succeeded"
     assert result["job_status"] == "failed"
     assert result["error"] == "账号未登录; dms: 私信列表失败"
     assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
@@ -420,6 +496,8 @@ def test_item_failure_reason_alias_is_returned_without_using_written_count(runti
             "status": "succeeded",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
             "job_status": "succeeded",
             "outputs": {
                 "job_response": '{"status":"succeeded"}',
@@ -435,7 +513,7 @@ def test_item_failure_reason_alias_is_returned_without_using_written_count(runti
             "error": None,
         },
     )
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
     assert result["error"] == "私信窗口打开失败"
     assert result["message_details"][0]["reason"] == "私信窗口打开失败"
@@ -450,6 +528,8 @@ def test_written_count_does_not_override_failed_delivery(runtime, settings):
             "status": "succeeded",
             "dify_workflow_status": "succeeded",
             "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
             "workflow_run_id": "wf-written",
             "job_id": "job-written",
             "job_status": "succeeded",
@@ -463,15 +543,212 @@ def test_written_count_does_not_override_failed_delivery(runtime, settings):
             "error": None,
         },
     )
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert result["written"]["dms"] == 1
     assert result["delivery"]["dms"] == {"sent": 0, "failed": 1, "unverified": 0}
     assert "发送成功 1" not in result["summary"]
 
+def _nested_list_package(*, job_id: str, channel: str, items: list, status: str = "succeeded", error=None):
+    return {
+        "ok": True,
+        "data": {
+            "job_id": job_id,
+            "command": "list",
+            "status": status,
+            "error": error,
+            "ok": True,
+            "exit_code": 0 if status == "succeeded" else 1,
+            "logs": f"list {channel} done",
+            "argv": ["douyin", "list", channel],
+            "data": {
+                "items": items,
+                "channel": channel,
+            },
+            "request": {
+                "account": "shop1",
+                "platform": "douyin",
+                "video_id": "v-1",
+                "channel": channel,
+            },
+        },
+    }
+
+
+def test_nested_list_job_packages_count_inner_sent_items(runtime, settings):
+    list_comment = _nested_list_package(
+        job_id="list-c-1",
+        channel="comment",
+        items=[
+            {
+                "id": "c-1",
+                "target_type": "comment",
+                "status": "sent",
+                "author": "@user",
+                "text": "多少钱",
+            }
+        ],
+    )
+    list_message = _nested_list_package(
+        job_id="list-m-1",
+        channel="message",
+        items=[
+            {
+                "id": "m-1",
+                "status": "sent",
+                "recipient": "@user",
+                "draft": "您好，售价99元",
+            }
+        ],
+    )
+    result, repo, user, instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
+            "workflow_run_id": "wf-nested-list",
+            "job_id": "job-nested-list",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"data":{"status":"succeeded"}}',
+                "list_comment": list_comment,
+                "list_message": json.dumps(list_message, ensure_ascii=False),
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is True
+    assert result["delivery_ok"] is True
+    assert result["status"] == "succeeded"
+    assert result["job_status"] == "succeeded"
+    assert result["delivery"]["comments"] == {"sent": 1, "failed": 0, "unverified": 0}
+    assert result["delivery"]["dms"] == {"sent": 1, "failed": 0, "unverified": 0}
+    assert result["error"] is None or "delivery response is not a list" not in str(result["error"])
+    runs = repo.list_workflow_runs(user.user_id, instance.agent_instance_id)
+    assert len(runs) == 1
+    assert runs[0].status == "succeeded"
+
+
+def test_nested_list_job_package_failure_does_not_count_inner_sent(runtime, settings):
+    list_comment = _nested_list_package(
+        job_id="list-c-failed",
+        channel="comment",
+        status="failed",
+        items=[
+            {
+                "id": "c-1",
+                "target_type": "comment",
+                "status": "sent",
+                "author": "@user",
+                "text": "多少钱",
+            }
+        ],
+    )
+    result, _repo, _user, _instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
+            "workflow_run_id": "wf-list-job-failed",
+            "job_id": "job-list-job-failed",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"data":{"status":"succeeded"}}',
+                "list_comment": list_comment,
+                "list_message": [],
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is True
+    assert result["delivery"]["comments"]["sent"] == 0
+    assert result["delivery"]["comments"]["failed"] >= 1
+
+
+def test_snapshot_history_does_not_override_nested_list_items(runtime, settings):
+    list_comment = _nested_list_package(
+        job_id="list-c-hist",
+        channel="comment",
+        items=[
+            {
+                "id": "c-now",
+                "target_type": "comment",
+                "status": "failed",
+                "author": "@user",
+                "text": "多少钱",
+            }
+        ],
+    )
+    list_message = _nested_list_package(
+        job_id="list-m-hist",
+        channel="message",
+        items=[
+            {
+                "id": "m-now",
+                "status": "sent",
+                "recipient": "@user",
+                "draft": "您好，售价99元",
+            }
+        ],
+    )
+    snapshot = {
+        "ok": True,
+        "data": {
+            "comments": [
+                {"id": "c-old-sent", "status": "sent", "text": "old sent comment"},
+                {"id": "c-old-failed", "status": "failed", "text": "old failed comment"},
+                {"id": "c-old-ready", "status": "ready_to_send", "text": "old ready comment"},
+                {"id": "c-now", "status": "failed", "text": "多少钱"},
+            ],
+            "messages": [
+                {"id": "m-old-sent", "status": "sent", "message": "old sent dm body"},
+                {"id": "m-now", "status": "sent", "message": "您好，售价99元"},
+            ],
+        },
+    }
+    result, _repo, _user, _instance = _run_with_result(
+        runtime,
+        settings,
+        {
+            "ok": True,
+            "status": "succeeded",
+            "dify_workflow_status": "succeeded",
+            "workflow_ok": True,
+            "lead_ok": True,
+            "lead_status": "completed",
+            "workflow_run_id": "wf-snapshot-ignored",
+            "job_id": "job-snapshot-ignored",
+            "job_status": "succeeded",
+            "outputs": {
+                "job_status": "succeeded",
+                "job_response": '{"data":{"status":"succeeded"}}',
+                "list_comment": list_comment,
+                "list_message": list_message,
+                "snapshot": snapshot,
+            },
+            "error": None,
+        },
+    )
+    assert result["ok"] is True
+    assert result["delivery"]["comments"] == {"sent": 0, "failed": 1, "unverified": 0}
+    assert result["delivery"]["dms"] == {"sent": 1, "failed": 0, "unverified": 0}
+
+
 def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "dedup-a")
-    inputs = build_dify_inputs(settings, account="shop1", keyword="敏感肌")
+    inputs = build_dify_inputs(settings, platform="douyin", account="shop1", keyword="敏感肌")
     existing = repo.create_workflow_run(
         user.user_id,
         instance.agent_instance_id,
@@ -481,11 +758,12 @@ def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
         thread_id="lead-thread",
     )
     client = FakeDifyClient()
-    result = run_discover_douyin_leads(
+    result = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=client,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop1",
         keyword="敏感肌",
     )
@@ -499,17 +777,18 @@ def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
         user.user_id,
         instance.agent_instance_id,
         workflow_code=DEFAULT_WORKFLOW_CODE,
-        inputs=build_dify_inputs(settings, account="shop2", keyword="敏感肌"),
+        inputs=build_dify_inputs(settings, platform="douyin", account="shop2", keyword="敏感肌"),
         status="running",
     )
     stale = replace(stale, created_at=utcnow() - timedelta(minutes=11))
     repo._workflow_runs[stale.id] = stale
     second = FakeDifyClient()
-    fresh = run_discover_douyin_leads(
+    fresh = run_discover_leads(
         settings=settings,
         business_repo=repo,
         dify_client=second,
         configurable=_configurable(user, instance),
+        platform="douyin",
         account="shop2",
         keyword="敏感肌",
     )
@@ -518,13 +797,49 @@ def test_in_progress_run_is_reused_within_ten_minutes(runtime, settings):
     assert second.calls
 
 
+def test_successful_delivery_today_does_not_skip_new_send(runtime, settings):
+    repo = runtime.business_repo
+    user, instance = _bound_owner(repo, "dedup-today")
+    inputs = build_dify_inputs(settings, platform="douyin", account="shop1", video_id="video-1")
+    existing = repo.create_workflow_run(
+        user.user_id,
+        instance.agent_instance_id,
+        workflow_code=DEFAULT_WORKFLOW_CODE,
+        inputs=inputs,
+        status="succeeded",
+        outputs={
+            "list_comment": [{"video_id": "video-1", "status": "sent"}],
+            "list_message": [{"video_id": "video-1", "status": "sent"}],
+        },
+        workflow_run_id="wf-existing",
+    )
+    client = FakeDifyClient()
+    result = run_discover_leads(
+        settings=settings,
+        business_repo=repo,
+        dify_client=client,
+        configurable=_configurable(user, instance),
+        platform="douyin",
+        account="shop1",
+        video_id="video-1",
+    )
+    assert result["ok"] is True
+    assert "reused" not in result
+    assert result["id"] != str(existing.id)
+    assert "skipped duplicate send" not in str(result.get("summary") or "")
+    assert client.calls
+    runs = repo.list_workflow_runs(user.user_id, instance.agent_instance_id)
+    assert len(runs) == 2
+
+
 def test_graph_tool_sanitizes_channels_and_omits_keyword_when_video_id_present(runtime, llm, dify_client):
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "graph-video")
     llm.responses = [
         ai_tool(
-            "discover_douyin_leads",
+            "discover_leads",
             {
+                "platform": "douyin",
                 "account": "wmq",
                 "video_id": "7674838941266087168",
                 "keyword": "不要用",
@@ -554,7 +869,7 @@ def test_graph_tool_uses_fake_and_keeps_tutorial_nodes(runtime, llm, dify_client
     repo = runtime.business_repo
     user, instance = _bound_owner(repo, "graph-a")
     llm.responses = [
-        ai_tool("discover_douyin_leads", {"account": "shop1", "keyword": "敏感肌", "limit": 2}),
+        ai_tool("discover_leads", {"platform": "douyin", "account": "shop1", "keyword": "敏感肌", "limit": 2}),
         ai_text("已真实发送评论和私信"),
     ]
     config = graph_config(
@@ -565,7 +880,7 @@ def test_graph_tool_uses_fake_and_keeps_tutorial_nodes(runtime, llm, dify_client
     result = runtime.graph.invoke({"messages": [HumanMessage(content="去评论")]}, config)
     nodes = set(runtime.graph.get_graph().nodes)
     assert nodes >= {"chatbot", "tools"}
-    assert "discover_douyin_leads" not in nodes
+    assert "discover_leads" not in nodes
     assert dify_client.calls
     assert dify_client.calls[0]["inputs"]["no_send"] is False
     payload = json.loads(result["messages"][-2].content)

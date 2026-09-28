@@ -120,7 +120,7 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
             if scheduler is not None:
                 scheduler.shutdown(wait=False)
 
-    app = FastAPI(title="抖音运营助手", lifespan=lifespan)
+    app = FastAPI(title="运营助手", lifespan=lifespan)
     app.state.runtime = runtime
     app.add_middleware(
         CORSMiddleware,

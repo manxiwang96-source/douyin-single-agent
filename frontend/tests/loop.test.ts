@@ -105,8 +105,8 @@ describe("login to chat loop", () => {
       agent_mode: "single",
       agent_mode_label: "单智能体模式",
       knowledge_documents: [{ title: "faq", filename: "faq.md" }],
-      workflows: [{ code: "douyin-lead-discovery", display_name: "抖音线索发现与触达" }],
-      tools: [{ name: "discover_douyin_leads", display_name: "抖音线索发现" }],
+      workflows: [{ code: "douyin-lead-discovery", display_name: "线索发现与触达" }],
+      tools: [{ name: "discover_leads", display_name: "线索发现" }],
     });
     getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
     fetchAuthBlob.mockRejectedValue(new Error("no avatar"));
@@ -125,7 +125,7 @@ describe("login to chat loop", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("我的智能体");
     await wrapper.get(".agent-create-btn").trigger("click");
-    expect(wrapper.text()).toContain("抖音运营助手");
+    expect(wrapper.text()).toContain("运营助手");
     await wrapper.get(".agent-template").trigger("click");
     listAgentInstances.mockResolvedValue({
       items: [
@@ -149,7 +149,7 @@ describe("login to chat loop", () => {
     await wrapper.get(".agent-card-main").trigger("click");
     await flushPromises();
     expect(openAgentInstance).toHaveBeenCalledWith("id-1");
-    expect(wrapper.text()).toContain("抖音线索发现与触达");
+    expect(wrapper.text()).toContain("线索发现与触达");
     expect(wrapper.text()).toContain("返回广场");
     expect(wrapper.get("textarea").attributes("disabled")).toBeUndefined();
   });

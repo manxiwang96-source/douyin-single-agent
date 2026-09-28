@@ -2,8 +2,8 @@ export const DOUYIN_TEMPLATE_CODE = "douyin_ops";
 
 export const DOUYIN_TEMPLATE = {
   template_code: DOUYIN_TEMPLATE_CODE,
-  title: "抖音运营助手",
-  description: "围绕抖音账号和话题做运营规划，并通过已绑定工作流做线索发现与真实触达",
+  title: "运营助手",
+  description: "围绕抖音和小红书账号、话题及内容做运营规划，并通过已绑定工作流做线索发现与真实触达",
 };
 
 export type AgentCard = {

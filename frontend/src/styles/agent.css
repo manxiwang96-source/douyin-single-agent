@@ -126,12 +126,27 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
 }
 .agent-chat-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-columns: 400px minmax(0, 1fr) 400px;
+  grid-template-areas: "task main catalog";
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
+.agent-task-rail {
+  grid-area: task;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  padding: 18px 16px 28px;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--agent-border);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .agent-chat-main {
+  grid-area: main;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -281,6 +296,7 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
   word-break: break-word;
 }
 .agent-sidebar {
+  grid-area: catalog;
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -293,13 +309,9 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
   word-break: break-word;
 }
 .agent-task-progress {
-  flex: 0 1 auto;
-  min-height: 120px;
-  max-height: 42%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--agent-border);
 }
 .agent-task-progress h3 { margin: 0 0 8px; font-size: 14px; }
 .agent-task-empty { margin: 0; color: var(--agent-muted); font-size: 13px; }
@@ -383,13 +395,23 @@ html, body, #app { margin: 0; min-height: 100%; background: var(--agent-bg); col
 .agent-hitl-actions { display: flex; gap: 8px; margin-top: 10px; }
 .agent-empty { color: var(--agent-muted); padding: 40px 0; text-align: center; }
 @media (max-width: 900px) {
-  .agent-chat-layout { grid-template-columns: 1fr; }
+  .agent-chat-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "main"
+      "task"
+      "catalog";
+  }
   .agent-profile { grid-template-columns: 1fr; }
+  .agent-task-rail {
+    border-right: 0;
+    border-top: 1px solid var(--agent-border);
+    max-height: 40vh;
+  }
   .agent-sidebar {
     border-left: 0;
     border-top: 1px solid var(--agent-border);
     max-height: 40vh;
   }
-  .agent-task-progress { min-height: 120px; }
   .agent-chat-column { width: min(860px, calc(100% - 24px)); }
 }

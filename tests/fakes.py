@@ -138,9 +138,15 @@ class FakeDifyClient:
             "workflow_ok": True,
             "job_id": "job-fake-1",
             "job_status": "succeeded",
+            "lead_ok": True,
+            "lead_status": "completed",
+            "lead_error": None,
+            "summary": "线索工作流已完成",
             "outputs": {
                 "job_id": "job-fake-1",
                 "job_status": "succeeded",
+                "lead_ok": True,
+                "lead_status": "completed",
                 "job_response": '{"data":{"status":"succeeded"}}',
                 "list_comment": [
                     {

@@ -118,7 +118,7 @@ onMounted(loadCards);
       <header class="agent-topbar">
         <div>
           <h1 class="agent-title">我的智能体</h1>
-          <p class="agent-subtitle">一人可创建多个抖音运营助手实例</p>
+          <p class="agent-subtitle">一人可创建多个运营助手实例</p>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <input v-model="query" class="agent-search" placeholder="搜索名称或简介" />

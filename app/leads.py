@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from app.dify_client import compact_workflow_node, extract_dify_error, normalize_job_status, parse_json_value
+from app.dify_client import compact_workflow_node, extract_dify_error, normalize_job_status, parse_json_value, parse_optional_bool
 from app.repository import (
     DEFAULT_WORKFLOW_CODE,
     ENGAGE_COMMENT_STATUSES,
@@ -20,6 +19,7 @@ from app.repository import (
 LEAD_WORKFLOW_CODE = DEFAULT_WORKFLOW_CODE
 DEDUP_WINDOW = timedelta(minutes=10)
 BLOCKED_ACCOUNT_STATUSES = frozenset({"paused", "needs_login"})
+ALLOWED_LEAD_PLATFORMS = frozenset({"douyin", "xiaohongshu"})
 DEFAULT_LEAD_PLATFORM = "douyin"
 DEFAULT_LEAD_LIMIT = 20
 DEFAULT_LEAD_CHANNELS = "comment,message"
@@ -71,31 +71,37 @@ def json_tool_result(payload: dict[str, Any]) -> str:
 def build_dify_inputs(
     settings,
     *,
+    platform: str,
     account: str,
     keyword: str = "",
     video_id: str = "",
+    url: str = "",
     limit: int | str | None = None,
     channels: str = "",
+    max_comments: str = "",
+    select: str = "",
     list_status: str = "",
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "account": account,
-        "platform": DEFAULT_LEAD_PLATFORM,
+        "platform": platform,
         "no_send": False,
         "auto_login": True,
         "assess": True,
         "limit": DEFAULT_LEAD_LIMIT,
-        "channels": DEFAULT_LEAD_CHANNELS,
+        "channels": normalize_lead_channels(channels),
     }
     if video_id:
         inputs["video_id"] = video_id
     elif keyword:
         inputs["keyword"] = keyword
+    if url:
+        inputs["url"] = url
     if limit is not None and str(limit) != "":
         inputs["limit"] = limit
-    inputs["channels"] = normalize_lead_channels(channels)
-    if list_status:
-        inputs["list_status"] = list_status
+    for key, value in (("max_comments", max_comments), ("select", select), ("list_status", list_status)):
+        if value not in (None, ""):
+            inputs[key] = value
     base_url = (getattr(settings, "douyin_http_base_url", "") or "").strip()
     api_token = (getattr(settings, "douyin_http_api_token", "") or "").strip()
     inputs["base_url"] = base_url or DEFAULT_DOUYIN_HTTP_BASE_URL
@@ -104,11 +110,13 @@ def build_dify_inputs(
     return inputs
 
 
-def validate_lead_args(*, account: str, keyword: str, video_id: str) -> str | None:
+def validate_lead_args(*, platform: str, account: str, keyword: str, video_id: str, url: str) -> str | None:
+    if platform not in ALLOWED_LEAD_PLATFORMS:
+        return "platform must be douyin or xiaohongshu"
     if not (account or "").strip():
         return "account is required"
-    if not (keyword or "").strip() and not (video_id or "").strip():
-        return "keyword or video_id is required"
+    if not any(((keyword or "").strip(), (video_id or "").strip(), (url or "").strip())):
+        return "keyword, video_id, or url is required"
     return None
 
 
@@ -121,58 +129,20 @@ def find_in_progress_run(repo, user_id: UUID, agent_instance_id: UUID, inputs: d
     account = _norm(inputs.get("account"))
     keyword = _norm(inputs.get("keyword"))
     video_id = _norm(inputs.get("video_id"))
+    url = _norm(inputs.get("url"))
+    platform = _norm(inputs.get("platform"))
     for record in repo.list_workflow_runs(user_id, agent_instance_id, status="running", since=since):
         existing = record.inputs or {}
         if (
-            _norm(existing.get("account")) == account
+            _norm(existing.get("platform")) == platform
+            and _norm(existing.get("account")) == account
             and _norm(existing.get("keyword")) == keyword
             and _norm(existing.get("video_id")) == video_id
+            and _norm(existing.get("url")) == url
         ):
             return record
     return None
 
-
-def _requested_channels(value: Any) -> set[str]:
-    normalized = normalize_lead_channels(str(value or ""))
-    return set(normalized.split(","))
-
-
-def _successful_channels(outputs: Any) -> set[str]:
-    payload = outputs if isinstance(outputs, dict) else {}
-    channels: set[str] = set()
-    for output_key, channel, allowed in (
-        ("list_comment", CHANNEL_COMMENT, ENGAGE_COMMENT_STATUSES),
-        ("list_message", CHANNEL_MESSAGE, ENGAGE_DM_STATUSES),
-    ):
-        items, _ = _delivery_items(payload.get(output_key))
-        if any(isinstance(item, dict) and _item_status(item, allowed) == "sent" for item in items):
-            channels.add(channel)
-    return channels
-
-
-def find_successful_delivery_today(
-    repo,
-    user_id: UUID,
-    agent_instance_id: UUID,
-    inputs: dict[str, Any],
-    *,
-    assistant_timezone: str,
-    now: datetime | None = None,
-):
-    zone = ZoneInfo(assistant_timezone)
-    current = (now or datetime.now(zone)).astimezone(zone)
-    account = _norm(inputs.get("account"))
-    video_id = _norm(inputs.get("video_id"))
-    requested = _requested_channels(inputs.get("channels"))
-    for record in repo.list_workflow_runs(user_id, agent_instance_id, status="succeeded"):
-        if record.created_at.astimezone(zone).date() != current.date():
-            continue
-        existing = record.inputs or {}
-        if _norm(existing.get("account")) != account or _norm(existing.get("video_id")) != video_id:
-            continue
-        if requested & _successful_channels(record.outputs):
-            return record
-    return None
 
 def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
@@ -188,8 +158,8 @@ def _as_list(value: Any) -> list[Any]:
     return []
 
 
-def _delivery_items(value: Any) -> tuple[list[Any], str | None]:
-    """Only explicit arrays/array wrappers are records; error objects stay errors."""
+def _delivery_items(value: Any, *, depth: int = 0) -> tuple[list[Any], str | None]:
+    """Unwrap nested list job packages; only inner item arrays are records."""
     if value is None or value == "":
         return [], "delivery response unavailable"
     parsed = parse_json_value(value)
@@ -197,13 +167,39 @@ def _delivery_items(value: Any) -> tuple[list[Any], str | None]:
         return parsed, None
     if not isinstance(parsed, dict):
         return [], "delivery response is not a list"
-    response_error = extract_dify_error(parsed)
-    if parsed.get("ok") is False or response_error:
-        return [], response_error or "delivery request failed"
-    for key in ("data", "items", "list", "comments", "messages", "result"):
+    if depth > 4:
+        return [], "delivery response is not a list"
+    if parsed.get("ok") is False:
+        return [], extract_dify_error(parsed) or "delivery request failed"
+    status = str(parsed.get("status") or "").strip().lower()
+    if "command" in parsed and status in {"failed", "timeout", "cancelled", "canceled", "error"}:
+        return [], _delivery_layer_error(parsed) or "delivery request failed"
+    layer_error = _delivery_layer_error(parsed)
+    if layer_error:
+        return [], layer_error
+    for key in ("items", "list", "comments", "messages", "result"):
         if isinstance(parsed.get(key), list):
             return parsed[key], None
+    data = parsed.get("data")
+    if isinstance(data, list):
+        return data, None
+    parsed_data = parse_json_value(data)
+    if isinstance(parsed_data, list):
+        return parsed_data, None
+    if isinstance(parsed_data, dict):
+        return _delivery_items(parsed_data, depth=depth + 1)
     return [], "delivery response is not a list"
+
+
+def _delivery_layer_error(payload: dict[str, Any]) -> str | None:
+    for key in ("error", "reason", "error_message", "failure_reason"):
+        error = payload.get(key)
+        if error is None or not str(error).strip():
+            continue
+        if isinstance(error, (dict, list)):
+            return json.dumps(error, ensure_ascii=False)
+        return str(error)
+    return None
 
 
 def _item_status(item: dict[str, Any], allowed: frozenset[str], default: str = "unverified") -> str:
@@ -416,17 +412,21 @@ def emit_dify_node_progress(nodes: list[dict[str, Any]]) -> None:
         return
 
 
-def run_discover_douyin_leads(
+def run_discover_leads(
     *,
     settings,
     business_repo,
     dify_client,
     configurable: dict[str, Any],
+    platform: str,
     account: str,
     keyword: str = "",
     video_id: str = "",
+    url: str = "",
     limit: int | str | None = None,
     channels: str = "",
+    max_comments: str = "",
+    select: str = "",
     list_status: str = "",
 ) -> dict[str, Any]:
     user_id_raw = configurable.get("user_id")
@@ -435,7 +435,13 @@ def run_discover_douyin_leads(
     allowed = list(configurable.get("allowed_workflow_codes") or [])
     if LEAD_WORKFLOW_CODE not in allowed:
         return {"ok": False, "error": "workflow not bound", "status": "failed"}
-    missing = validate_lead_args(account=account, keyword=keyword, video_id=video_id)
+    missing = validate_lead_args(
+        platform=(platform or "").strip(),
+        account=account,
+        keyword=keyword,
+        video_id=video_id,
+        url=url,
+    )
     if missing:
         return {"ok": False, "error": missing, "status": "failed"}
     try:
@@ -456,11 +462,15 @@ def run_discover_douyin_leads(
 
     inputs = build_dify_inputs(
         settings,
+        platform=(platform or "").strip(),
         account=account_text,
         keyword=(keyword or "").strip(),
         video_id=(video_id or "").strip(),
+        url=(url or "").strip(),
         limit=limit,
         channels=(channels or "").strip(),
+        max_comments=(max_comments or "").strip(),
+        select=(select or "").strip(),
         list_status=(list_status or "").strip(),
     )
     existing = find_in_progress_run(business_repo, user_id, agent_instance_id, inputs)
@@ -474,22 +484,6 @@ def run_discover_douyin_leads(
             "summary": "in-progress run reused; skipped second POST",
         }
 
-    delivered_today = find_successful_delivery_today(
-        business_repo,
-        user_id,
-        agent_instance_id,
-        inputs,
-        assistant_timezone=getattr(settings, "assistant_timezone", "Asia/Shanghai"),
-    )
-    if delivered_today is not None:
-        return {
-            "ok": True,
-            "reused": True,
-            "status": "succeeded",
-            "workflow_run_id": delivered_today.workflow_run_id,
-            "id": str(delivered_today.id),
-            "summary": "same account, video and delivery type already succeeded today; skipped duplicate send",
-        }
     run = business_repo.create_workflow_run(
         user_id,
         agent_instance_id,
@@ -520,6 +514,26 @@ def run_discover_douyin_leads(
             job_status = normalize_job_status(response_raw)
         elif job_status == "unverified":
             job_status = normalize_job_status(outputs.get("job_status"))
+    lead_ok = parse_optional_bool(result.get("lead_ok"))
+    lead_status = str(result.get("lead_status") or "").strip() or None
+    lead_error = result.get("lead_error")
+    video_status = result.get("video_status")
+    video_id_result = result.get("video_id")
+    result_summary = result.get("summary")
+    if isinstance(outputs, dict):
+        if lead_ok is None:
+            lead_ok = parse_optional_bool(outputs.get("lead_ok"))
+        lead_status = lead_status or (str(outputs.get("lead_status") or "").strip() or None)
+        lead_error = lead_error or outputs.get("lead_error")
+        video_status = video_status or outputs.get("video_status")
+        video_id_result = video_id_result or outputs.get("video_id")
+        result_summary = result_summary or outputs.get("summary")
+    if isinstance(lead_error, (dict, list)):
+        lead_error = json.dumps(lead_error, ensure_ascii=False)
+    lead_error = str(lead_error).strip() if lead_error not in (None, "") else None
+    if isinstance(result_summary, (dict, list)):
+        result_summary = json.dumps(result_summary, ensure_ascii=False)
+    result_summary = str(result_summary).strip() if result_summary not in (None, "") else None
     status = str(result.get("status") or (job_status if job_status != "unverified" else "failed"))
     if status not in WORKFLOW_RUN_STATUSES and status not in {"unverified"}:
         status = "failed"
@@ -531,38 +545,39 @@ def run_discover_douyin_leads(
         task_error = job_response_error
     if job_status == "unverified" and not task_error:
         task_error = "job status unavailable"
+    if workflow_ok and lead_ok is None and not task_error:
+        task_error = "lead result unavailable"
     if job_status == "failed" and not task_error:
         task_error = "job failed"
     delivery, message_details, delivery_errors, delivery_ok = _delivery_result(outputs, job_status=job_status)
     error_parts: list[str] = []
+    if lead_error:
+        error_parts.append(lead_error)
     for candidate in [task_error, *delivery_errors]:
         candidate_text = str(candidate) if candidate else ""
         if (
-            task_error == "job status unavailable"
+            (task_error == "job status unavailable" or lead_ok is False)
             and candidate_text.endswith(": delivery response unavailable")
         ):
             continue
         if candidate_text and candidate_text not in error_parts:
             error_parts.append(candidate_text)
     error = "; ".join(error_parts) or None
-    if job_status == "succeeded" and delivery_ok:
+    if not workflow_ok:
+        status = str(result.get("status") or "failed")
+    elif lead_ok is True:
         status = "succeeded"
-    elif job_status == "succeeded" and any(
-        counts["unverified"] > 0 and counts["failed"] == 0 for counts in delivery.values()
-    ) and not any(counts["failed"] > 0 for counts in delivery.values()):
-        status = "unverified"
     elif job_status == "cancelled":
         status = "cancelled"
     elif job_status == "timeout":
         status = "timeout"
-    elif job_status == "failed":
+    elif lead_status in {"needs_login", "failed"} or lead_ok is False:
         status = "failed"
-    elif job_status == "unverified":
-        status = "unverified"
+        delivery_ok = False
     else:
-        status = "failed"
+        status = "unverified"
     written = {"videos": 0, "comments": 0, "dms": 0}
-    if job_status == "succeeded":
+    if lead_ok is True and job_status == "succeeded":
         try:
             written = apply_engage_writeback(
                 business_repo,
@@ -583,8 +598,8 @@ def run_discover_douyin_leads(
         error=error,
         workflow_run_id=workflow_run_id,
     )
-    ok = bool(workflow_ok and job_status == "succeeded" and delivery_ok)
-    summary = summarize_lead_result(
+    ok = bool(workflow_ok and lead_ok is True)
+    summary = result_summary or summarize_lead_result(
         status=status,
         outputs=outputs,
         written=written,
@@ -596,7 +611,13 @@ def run_discover_douyin_leads(
         "workflow_ok": workflow_ok,
         "delivery_ok": delivery_ok,
         "status": status,
+        "platform": inputs.get("platform"),
         "dify_workflow_status": dify_workflow_status,
+        "lead_ok": lead_ok,
+        "lead_status": lead_status,
+        "lead_error": lead_error,
+        "video_status": video_status,
+        "video_id": video_id_result,
         "job_status": job_status,
         "workflow_run_id": workflow_run_id,
         "job_id": job_id,

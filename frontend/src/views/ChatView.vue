@@ -5,6 +5,7 @@ import { getAgentSidebar, openAgentInstance } from "../api/agents";
 import { fetchAuthBlob, getThread, postMessage, resumeThread } from "../api/threads";
 import ChatSidebar from "../components/ChatSidebar.vue";
 import HitlCard from "../components/HitlCard.vue";
+import TaskProgressPanel from "../components/TaskProgressPanel.vue";
 import {
   appendPendingToken,
   approveResumePayload,
@@ -34,7 +35,7 @@ const router = useRouter();
 const auth = useAuthStore();
 const agentInstanceId = computed(() => String(route.params.agentInstanceId || ""));
 const threadId = ref(typeof route.query.thread_id === "string" ? route.query.thread_id : "");
-const title = ref("抖音运营助手");
+const title = ref("运营助手");
 const avatarSrc = ref("");
 const error = ref("");
 const activeRequests = ref(0);
@@ -239,6 +240,7 @@ onUnmounted(() => {
       <button class="agent-btn agent-btn-ghost" type="button" @click="logout">退出登录</button>
     </header>
     <div class="agent-chat-layout">
+      <TaskProgressPanel :progress="taskProgress" />
       <section class="agent-chat-main">
         <p v-if="error" class="agent-error agent-chat-error">{{ error }}</p>
         <div class="agent-chat-body">
@@ -274,13 +276,13 @@ onUnmounted(() => {
               </div>
             </div>
             <form class="agent-composer" @submit.prevent="send">
-              <textarea v-model="draft" :disabled="!inputEnabled" placeholder="输入抖音运营问题、提醒或内容需求" @keydown.enter.exact.prevent="send" />
+              <textarea v-model="draft" :disabled="!inputEnabled" placeholder="输入运营问题、提醒或内容需求" @keydown.enter.exact.prevent="send" />
               <button class="agent-btn" type="submit" :disabled="!inputEnabled">{{ sending ? "发送中..." : "发送" }}</button>
             </form>
           </div>
         </div>
       </section>
-      <ChatSidebar :sidebar="sidebar" :progress="taskProgress" />
+      <ChatSidebar :sidebar="sidebar" />
     </div>
   </div>
 </template>

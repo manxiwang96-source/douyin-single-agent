@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import AgentCard from "../src/components/AgentCard.vue";
 import ChatSidebar from "../src/components/ChatSidebar.vue";
 import CreateAgentModal from "../src/components/CreateAgentModal.vue";
+import TaskProgressPanel from "../src/components/TaskProgressPanel.vue";
 import HitlCard from "../src/components/HitlCard.vue";
 import PlazaView from "../src/views/PlazaView.vue";
 import { sidebarView } from "../src/lib/chat";
@@ -117,7 +118,7 @@ describe("vue components", () => {
 
   it("create modal stays on two steps without changing route", async () => {
     const wrapper = mount(CreateAgentModal, { props: { open: true } });
-    expect(wrapper.text()).toContain("抖音运营助手");
+    expect(wrapper.text()).toContain("运营助手");
     expect(wrapper.text()).not.toContain("对话式智能体");
     await wrapper.get(".agent-template").trigger("click");
     expect(wrapper.text()).toContain("名称*");
@@ -136,7 +137,7 @@ describe("vue components", () => {
     expect(wrapper.text()).toContain("编辑智能体");
     expect(wrapper.text()).toContain("保存");
     expect(wrapper.find(".agent-template").exists()).toBe(false);
-    expect(wrapper.text()).not.toContain("抖音运营助手");
+    expect(wrapper.text()).not.toContain("运营助手");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
     expect(patchAgentInstance).toHaveBeenCalledWith("id-1", { title: "助手A", intro: "日常运营" });
@@ -207,8 +208,8 @@ describe("vue components", () => {
           development_notes: "能力只展示不勾选",
           agent_mode_label: "单智能体模式",
           knowledge_documents: [{ title: "faq", filename: "faq.md" }],
-          workflows: [{ code: "douyin-lead-discovery", display_name: "抖音线索发现与触达" }],
-          tools: [{ name: "discover_douyin_leads", display_name: "抖音线索发现", user_facing_summary: "真实发送" }],
+          workflows: [{ code: "douyin-lead-discovery", display_name: "线索发现与触达" }],
+          tools: [{ name: "discover_leads", display_name: "线索发现", user_facing_summary: "真实发送" }],
           model: "hidden",
         }),
       },
@@ -216,11 +217,14 @@ describe("vue components", () => {
     expect(wrapper.text()).toContain("规划抖音运营并触达线索");
     expect(wrapper.text()).toContain("能力只展示不勾选");
     expect(wrapper.text()).toContain("faq");
-    expect(wrapper.text()).toContain("抖音线索发现与触达");
-    expect(wrapper.text()).toContain("抖音线索发现");
+    expect(wrapper.text()).toContain("线索发现与触达");
+    expect(wrapper.text()).toContain("线索发现");
     expect(wrapper.text()).toContain("多智能体模式");
     expect(wrapper.text()).not.toContain("hidden");
     expect(wrapper.html()).not.toContain("model");
+    expect(wrapper.find(".agent-task-progress").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("当前任务");
+    expect(wrapper.text()).not.toContain("暂无进行中的任务");
   });
 
 
@@ -246,6 +250,9 @@ describe("vue components", () => {
     ]);
     expect(wrapper.text()).toContain("单智能体模式");
     expect(wrapper.text()).toContain("多智能体模式");
+    expect(wrapper.find(".agent-task-progress").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("当前任务");
+    expect(wrapper.text()).not.toContain("暂无进行中的任务");
   });
 
   it("HITL card exposes approve/skip and chat helpers disable input", async () => {
@@ -266,62 +273,55 @@ describe("vue components", () => {
     expect(wrapper.emitted("skip")).toBeTruthy();
   });
   it("renders the current-task panel above the catalog", () => {
-    const wrapper = mount(ChatSidebar, {
+    const sidebar = sidebarView({
+      capability_description: "规划抖音运营并触达线索",
+      development_notes: "能力只展示不勾选",
+      agent_mode_label: "单智能体模式",
+      knowledge_documents: [],
+      workflows: [],
+      tools: [],
+    });
+    const task = mount(TaskProgressPanel, {
       props: {
-        sidebar: sidebarView({
-          capability_description: "规划抖音运营并触达线索",
-          development_notes: "能力只展示不勾选",
-          agent_mode_label: "单智能体模式",
-          knowledge_documents: [],
-          workflows: [],
-          tools: [],
-        }),
         progress: {
           round_id: "client-1",
           phase: "running",
           steps: [
             { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
-            { id: "tool:discover_douyin_leads:c1", kind: "tool", tool: "discover_douyin_leads", label: "正在运行「抖音线索发现与触达」", status: "running", spin: true },
+            { id: "tool:discover_leads:c1", kind: "tool", tool: "discover_leads", label: "正在运行「线索发现与触达」", status: "running", spin: true },
           ],
         },
       },
     });
-    const html = wrapper.html();
-    expect(html.indexOf("agent-task-progress")).toBeGreaterThan(-1);
-    expect(html.indexOf("agent-task-progress")).toBeLessThan(html.indexOf("agent-sidebar-catalog"));
-    expect(wrapper.get(".agent-task-progress h3").text()).toBe("当前任务");
-    expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「抖音线索发现与触达」");
-    expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
-    expect(wrapper.get(".agent-sidebar-catalog").text()).toContain("规划抖音运营并触达线索");
+    expect(task.find(".agent-task-rail").exists()).toBe(true);
+    expect(task.get(".agent-task-progress h3").text()).toBe("当前任务");
+    expect(task.get(".agent-task-progress").text()).toContain("正在运行「线索发现与触达」");
+    expect(task.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
+    const catalog = mount(ChatSidebar, { props: { sidebar } });
+    expect(catalog.find(".agent-task-progress").exists()).toBe(false);
+    expect(catalog.text()).not.toContain("当前任务");
+    expect(catalog.get(".agent-sidebar-catalog").text()).toContain("规划抖音运营并触达线索");
   });
 
   it("nests Dify children under the parent step with running done and failed marks", () => {
-    const wrapper = mount(ChatSidebar, {
+    const wrapper = mount(TaskProgressPanel, {
       props: {
-        sidebar: sidebarView({
-          capability_description: "规划抖音运营并触达线索",
-          development_notes: "能力只展示不勾选",
-          agent_mode_label: "单智能体模式",
-          knowledge_documents: [],
-          workflows: [],
-          tools: [],
-        }),
         progress: {
           round_id: "client-1",
           phase: "running",
           steps: [
             { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
             {
-              id: "tool:discover_douyin_leads:c1",
+              id: "tool:discover_leads:c1",
               kind: "tool",
-              tool: "discover_douyin_leads",
-              label: "正在运行「抖音线索发现与触达」",
+              tool: "discover_leads",
+              label: "正在运行「线索发现与触达」",
               status: "running",
               spin: true,
               children: [
-                { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
-                { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "running", spin: true },
-                { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "失败节点", status: "failed", spin: false },
+                { id: "dify:n1:0", kind: "dify_node", tool: "discover_leads", label: "开始", status: "done", spin: false },
+                { id: "dify:n2:1", kind: "dify_node", tool: "discover_leads", label: "请求抖音", status: "running", spin: true },
+                { id: "dify:n3:2", kind: "dify_node", tool: "discover_leads", label: "失败节点", status: "failed", spin: false },
               ],
             },
           ],
@@ -339,18 +339,7 @@ describe("vue components", () => {
   });
 
   it("shows an empty-task placeholder when there are no steps", () => {
-    const wrapper = mount(ChatSidebar, {
-      props: {
-        sidebar: sidebarView({
-          capability_description: "",
-          development_notes: "",
-          agent_mode_label: "单智能体模式",
-          knowledge_documents: [],
-          workflows: [],
-          tools: [],
-        }),
-      },
-    });
+    const wrapper = mount(TaskProgressPanel);
     expect(wrapper.get(".agent-task-empty").text()).toBe("暂无进行中的任务");
     expect(wrapper.find(".agent-task-steps").exists()).toBe(false);
   });

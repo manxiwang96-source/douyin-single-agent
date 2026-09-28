@@ -29,11 +29,11 @@ describe("chat helpers", () => {
       agent_mode: "single",
       agent_mode_label: "单智能体模式",
       knowledge_documents: [{ title: "faq", filename: "faq.md" }],
-      workflows: [{ code: "douyin-lead-discovery", display_name: "抖音线索发现与触达" }],
+      workflows: [{ code: "douyin-lead-discovery", display_name: "线索发现与触达" }],
       tools: [
         {
-          name: "discover_douyin_leads",
-          display_name: "抖音线索发现",
+          name: "discover_leads",
+          display_name: "线索发现",
           user_facing_summary: "扫描并真实发送评论或私信",
         },
       ],
@@ -44,8 +44,8 @@ describe("chat helpers", () => {
     expect(view.capability_description).toContain("规划抖音运营");
     expect(view.development_notes).toContain("能力只展示");
     expect(view.knowledge_documents[0].filename).toBe("faq.md");
-    expect(view.workflows[0].display_name).toBe("抖音线索发现与触达");
-    expect(view.tools[0].name).toBe("discover_douyin_leads");
+    expect(view.workflows[0].display_name).toBe("线索发现与触达");
+    expect(view.tools[0].name).toBe("discover_leads");
   });
 
   it("disables chat input during HITL", () => {
@@ -156,15 +156,15 @@ describe("task progress helpers", () => {
         phase: "running",
         steps: [
           {
-            id: "tool:discover_douyin_leads:c1",
+            id: "tool:discover_leads:c1",
             kind: "tool",
-            tool: "discover_douyin_leads",
-            label: "正在运行「抖音线索发现与触达」",
+            tool: "discover_leads",
+            label: "正在运行「线索发现与触达」",
             status: "running",
             children: [
-              { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done" },
-              { id: "dify:n2:1", kind: "dify_node", tool: "discover_douyin_leads", label: "请求抖音", status: "failed" },
-              { id: "dify:n3:2", kind: "dify_node", tool: "discover_douyin_leads", label: "未知", status: "mystery" },
+              { id: "dify:n1:0", kind: "dify_node", tool: "discover_leads", label: "开始", status: "done" },
+              { id: "dify:n2:1", kind: "dify_node", tool: "discover_leads", label: "请求抖音", status: "failed" },
+              { id: "dify:n3:2", kind: "dify_node", tool: "discover_leads", label: "未知", status: "mystery" },
             ],
           },
         ],
@@ -230,7 +230,7 @@ describe("task progress helpers", () => {
             status: "waiting",
             spin: false,
             children: [
-              { id: "dify:n1:0", kind: "dify_node", tool: "discover_douyin_leads", label: "开始", status: "done", spin: false },
+              { id: "dify:n1:0", kind: "dify_node", tool: "discover_leads", label: "开始", status: "done", spin: false },
             ],
           },
         ],

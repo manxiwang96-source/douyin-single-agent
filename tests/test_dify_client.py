@@ -87,7 +87,7 @@ def test_http_body_stringifies_select_bools(settings):
 
     def handler(request: httpx.Request) -> httpx.Response:
         posts.append(request)
-        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
+        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "lead_ok": True, "lead_status": "completed", "summary": "已完成", "job_response": '{"status":"succeeded"}'}}})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
@@ -157,7 +157,7 @@ def test_owned_client_fills_required_defaults_from_parameters(settings, monkeypa
 
         def post(self, url, headers=None, json=None, timeout=None):
             posts.append(json)
-            return FakeResponse(200, {"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
+            return FakeResponse(200, {"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "lead_ok": True, "lead_status": "completed", "summary": "已完成", "job_response": '{"status":"succeeded"}'}}})
 
         def stream(self, method, url, headers=None, json=None, timeout=None):
             return self.post(url, headers=headers, json=json, timeout=timeout)
@@ -186,7 +186,7 @@ def test_client_always_forces_no_send_false(settings):
 
     def handler(request: httpx.Request) -> httpx.Response:
         posts.append(request)
-        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "job_response": '{"status":"succeeded"}'}}})
+        return httpx.Response(200, json={"data": {"id": "wf-1", "status": "succeeded", "outputs": {"job_status": "succeeded", "lead_ok": True, "lead_status": "completed", "summary": "已完成", "job_response": '{"status":"succeeded"}'}}})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     live_settings = settings.model_copy(update={"dify_api_key": "fake-key", "dify_live_enabled": True})
@@ -197,6 +197,49 @@ def test_client_always_forces_no_send_false(settings):
     assert body["inputs"]["no_send"] == "false"
     assert body["inputs"]["account"] == "shop1"
 
+
+
+def test_parse_dify_payload_uses_business_lead_result_and_parses_string_booleans():
+    no_hit = parse_dify_workflow_payload(
+        {
+            "data": {
+                "status": "succeeded",
+                "outputs": {
+                    "job_status": "succeeded",
+                    "lead_ok": "true",
+                    "lead_status": "no_hit",
+                    "summary": "未发现符合条件的线索",
+                },
+            }
+        }
+    )
+    failed = parse_dify_workflow_payload(
+        {
+            "data": {
+                "status": "succeeded",
+                "outputs": {
+                    "job_status": "succeeded",
+                    "lead_ok": "false",
+                    "lead_status": "failed",
+                    "lead_error": "发送失败",
+                },
+            }
+        }
+    )
+    missing = parse_dify_workflow_payload(
+        {"data": {"status": "succeeded", "outputs": {"job_status": "succeeded"}}}
+    )
+    assert no_hit["ok"] is True
+    assert no_hit["status"] == "succeeded"
+    assert no_hit["lead_ok"] is True
+    assert no_hit["lead_status"] == "no_hit"
+    assert failed["ok"] is False
+    assert failed["status"] == "failed"
+    assert failed["lead_ok"] is False
+    assert failed["error"] == "发送失败"
+    assert missing["ok"] is False
+    assert missing["status"] == "unverified"
+    assert missing["error"] == "lead result unavailable"
 
 
 def test_parse_dify_payload_outer_success_does_not_override_failed_job():
@@ -288,6 +331,9 @@ def _workflow_finished_payload():
             "status": "succeeded",
             "outputs": {
                 "job_status": "succeeded",
+                "lead_ok": True,
+                "lead_status": "completed",
+                "summary": "已完成",
                 "job_response": '{"status":"succeeded"}',
             },
         },

@@ -20,7 +20,7 @@ def test_graph_nodes_remain_chatbot_and_tools(runtime):
     nodes = set(runtime.graph.get_graph().nodes)
     assert "chatbot" in nodes
     assert "tools" in nodes
-    assert "discover_douyin_leads" not in nodes
+    assert "discover_leads" not in nodes
     assert "review_media" not in nodes
 
 

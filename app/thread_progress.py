@@ -24,7 +24,7 @@ MEDIA_TOOLS = {
 }
 
 NAMED_TOOL_LABELS = {
-    "discover_douyin_leads": '正在运行「抖音线索发现与触达」',
+    "discover_leads": '正在运行「线索发现与触达」',
     "search_kb": '知识库检索',
     "remember_fact": '记住事实',
     "recall_facts": '回忆事实',
@@ -133,7 +133,7 @@ def dify_child_step(node: dict[str, Any] | None) -> dict[str, Any]:
         return _step(
             id=step_id,
             kind="dify_node",
-            tool="discover_douyin_leads",
+            tool="discover_leads",
             label=label,
             status=status,
             error=source.get("error"),
@@ -153,7 +153,7 @@ def dify_child_step(node: dict[str, Any] | None) -> dict[str, Any]:
     return _step(
         id=f"dify:{node_id}:{index}",
         kind="dify_node",
-        tool="discover_douyin_leads",
+        tool="discover_leads",
         label=str(title or node_id),
         status=status,
         error=error,
@@ -190,7 +190,7 @@ def overlay_live_dify_children(progress: dict[str, Any], live_children: list[dic
     updated = False
     next_steps: list[dict[str, Any]] = []
     for step in steps:
-        if not updated and step.get("tool") == "discover_douyin_leads":
+        if not updated and step.get("tool") == "discover_leads":
             cloned = dict(step)
             cloned["children"] = list(live_children)
             next_steps.append(cloned)
@@ -308,7 +308,7 @@ def thread_progress(snapshot) -> dict[str, Any]:
                 continue
             payload = _parse_tool_payload(content)
             children = None
-            if name == "discover_douyin_leads" and payload is not None:
+            if name == "discover_leads" and payload is not None:
                 children = _children_from_nodes(payload.get("workflow_nodes")) or None
             upsert(
                 _step(

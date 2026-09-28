@@ -26,7 +26,7 @@ def test_should_emit_chatbot_token_filters_tools_and_chunks():
     assert should_emit_chatbot_token(text, {"langgraph_node": "chatbot"}) is True
     assert should_emit_chatbot_token(text, {"langgraph_node": "tools"}) is False
     assert should_emit_chatbot_token(
-        SimpleNamespace(content="call", tool_call_chunks=[{"name": "discover_douyin_leads"}], tool_calls=[]),
+        SimpleNamespace(content="call", tool_call_chunks=[{"name": "discover_leads"}], tool_calls=[]),
         {"langgraph_node": "chatbot"},
     ) is False
     assert should_emit_chatbot_token(
@@ -175,14 +175,14 @@ def _dify_children(events_or_thread):
         steps.extend(((events_or_thread.get("progress") or {}).get("steps")) or [])
     children = []
     for step in steps:
-        if step.get("tool") == "discover_douyin_leads":
+        if step.get("tool") == "discover_leads":
             children.extend(step.get("children") or [])
     return children
 
 
 def test_http_dify_children_live_overlay_and_no_text_chunk(runtime, llm, dify_client):
     llm.responses = [
-        ai_tool("discover_douyin_leads", {"account": "shop1", "keyword": "敏感肌"}),
+        ai_tool("discover_leads", {"platform": "douyin", "account": "shop1", "keyword": "敏感肌"}),
         ai_text("已完成线索发现"),
     ]
     dify_client.events = [

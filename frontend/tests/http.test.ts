@@ -89,6 +89,8 @@ describe("http client", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(fetchMock).toHaveBeenCalled();
     expect(chatHttp.defaults.timeout).toBe(CHAT_TIMEOUT_MS);
+    expect(CHAT_TIMEOUT_MS).toBe(900000);
+    expect(HTTP_TIMEOUT_MS).toBe(180000);
   });
 
   it("parses CRLF SSE progress and token before resolving thread", async () => {

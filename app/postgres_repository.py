@@ -49,7 +49,9 @@ from app.repository import (
     JOB_RUN_STATUSES,
     KNOWLEDGE_SOURCES,
     KNOWLEDGE_STATUSES,
+    THREAD_KINDS,
     THREAD_STATUSES,
+    DEFAULT_THREAD_KIND,
     USER_STATUSES,
     utcnow,
     as_utc,
@@ -572,6 +574,33 @@ class PostgresBusinessRepository:
         )
         return [_document_from_row(row) for row in rows]
 
+    def update_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID, *,
+        title: str | None = None, status: str | None = None,
+    ) -> KnowledgeDocumentRecord:
+        if status is not None:
+            require_value(status, KNOWLEDGE_STATUSES, "knowledge status")
+        current = self._fetch_one(
+            "SELECT * FROM agent_knowledge_documents WHERE document_id = %s AND user_id = %s AND agent_instance_id = %s",
+            (document_id, user_id, agent_instance_id), missing_ok=True,
+        )
+        if current is None:
+            raise NotFoundError(f"knowledge document not found: {document_id}")
+        next_title = current["title"] if title is None else title.strip()
+        if not next_title:
+            raise RepositoryError("knowledge document title is required")
+        row = self._fetch_one(
+            """UPDATE agent_knowledge_documents SET title = %s, status = %s
+               WHERE document_id = %s AND user_id = %s AND agent_instance_id = %s RETURNING *""",
+            (next_title, current["status"] if status is None else status, document_id, user_id, agent_instance_id),
+        )
+        return _document_from_row(row)
+
+    def delete_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID,
+    ) -> KnowledgeDocumentRecord:
+        return self.update_knowledge_document(document_id, user_id, agent_instance_id, status="archived")
+
     def create_app_thread(
         self,
         user_id: UUID,
@@ -580,19 +609,22 @@ class PostgresBusinessRepository:
         thread_id: str | None = None,
         title: str | None = None,
         status: str = "active",
+        config_version_id: UUID | None = None,
+        thread_kind: str = DEFAULT_THREAD_KIND,
     ) -> ThreadRecord:
         require_value(status, THREAD_STATUSES, "thread status")
+        require_value(thread_kind, THREAD_KINDS, "thread kind")
         now = utcnow()
         sql = """
             INSERT INTO app_threads (
-                thread_id, user_id, agent_instance_id, title, status, created_at, last_active_at
+                thread_id, user_id, agent_instance_id, config_version_id, title, status, thread_kind, created_at, last_active_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
         """
         row = self._fetch_one(
             sql,
-            (thread_id or str(uuid4()), user_id, agent_instance_id, title, status, now, now),
+            (thread_id or str(uuid4()), user_id, agent_instance_id, config_version_id, title, status, thread_kind, now, now),
         )
         return _thread_from_row(row)
 
@@ -604,17 +636,32 @@ class PostgresBusinessRepository:
         )
         return None if row is None else _thread_from_row(row)
 
-    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None:
-        row = self._fetch_one(
-            """
-            SELECT * FROM app_threads
-            WHERE user_id = %s AND agent_instance_id = %s AND status = 'active'
-            ORDER BY last_active_at DESC, created_at DESC
-            LIMIT 1
-            """,
-            (user_id, agent_instance_id),
-            missing_ok=True,
-        )
+    def get_latest_active_thread(
+        self, user_id: UUID, agent_instance_id: UUID, *, thread_kind: str | None = None,
+    ) -> ThreadRecord | None:
+        if thread_kind is None:
+            row = self._fetch_one(
+                """
+                SELECT * FROM app_threads
+                WHERE user_id = %s AND agent_instance_id = %s AND status = 'active'
+                ORDER BY last_active_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (user_id, agent_instance_id),
+                missing_ok=True,
+            )
+        else:
+            require_value(thread_kind, THREAD_KINDS, "thread kind")
+            row = self._fetch_one(
+                """
+                SELECT * FROM app_threads
+                WHERE user_id = %s AND agent_instance_id = %s AND status = 'active' AND thread_kind = %s
+                ORDER BY last_active_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (user_id, agent_instance_id, thread_kind),
+                missing_ok=True,
+            )
         return None if row is None else _thread_from_row(row)
 
     def add_media_asset(
@@ -1104,10 +1151,12 @@ def _thread_from_row(row) -> ThreadRecord:
         thread_id=str(row["thread_id"]),
         user_id=_as_uuid(row["user_id"]),
         agent_instance_id=_as_uuid(row["agent_instance_id"]),
+        config_version_id=_as_uuid(row["config_version_id"]) if row.get("config_version_id") else None,
         title=row.get("title"),
         status=row["status"],
         created_at=row["created_at"],
         last_active_at=row["last_active_at"],
+        thread_kind=row.get("thread_kind") or DEFAULT_THREAD_KIND,
     )
 
 

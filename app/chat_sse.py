@@ -102,11 +102,12 @@ async def _graph_snapshot(graph, config):
     return graph.get_state(config)
 
 
-async def stream_chat_events(runtime, thread_id: str, payload, config) -> AsyncIterator[dict[str, str]]:
+async def stream_chat_events(runtime, thread_id: str, payload, config, graph=None) -> AsyncIterator[dict[str, str]]:
     live_children: list[dict[str, Any]] = []
     seen = ""
+    graph = graph or runtime.graph
     try:
-        async for item in runtime.graph.astream(
+        async for item in graph.astream(
             payload,
             config,
             stream_mode=["updates", "messages", "custom"],
@@ -117,7 +118,7 @@ async def stream_chat_events(runtime, thread_id: str, payload, config) -> AsyncI
                 children = live_children_from_custom(data)
                 if children is not None:
                     live_children = children
-                snapshot = await _graph_snapshot(runtime.graph, config)
+                snapshot = await _graph_snapshot(graph, config)
                 progress = overlay_live_dify_children(thread_progress(snapshot), live_children)
                 yield sse_event("progress", progress)
                 continue
@@ -129,7 +130,7 @@ async def stream_chat_events(runtime, thread_id: str, payload, config) -> AsyncI
                         yield sse_event("token", {"delta": delta})
                 continue
             if mode == "updates":
-                snapshot = await _graph_snapshot(runtime.graph, config)
+                snapshot = await _graph_snapshot(graph, config)
                 progress = overlay_live_dify_children(thread_progress(snapshot), live_children)
                 yield sse_event("progress", progress)
                 fallback = _chatbot_update_message(data)
@@ -139,9 +140,21 @@ async def stream_chat_events(runtime, thread_id: str, payload, config) -> AsyncI
                     delta, seen = next_chatbot_delta(message_text(fallback), seen)
                     if delta:
                         yield sse_event("token", {"delta": delta})
-        yield sse_event("thread", serialize_thread(runtime, thread_id))
+        thread = serialize_thread(runtime, thread_id, graph)
+        # Depending on LangGraph version and stream mode, an interrupt may be
+        # persisted in the checkpoint without bubbling as GraphInterrupt from
+        # ``astream``. Always expose the approval event before the terminal
+        # thread snapshot so HTTP/SSE clients can resume the same thread.
+        pending = thread.get("interrupt")
+        if pending is not None:
+            yield sse_event("approval", pending)
+        yield sse_event("thread", thread)
     except (GraphInterrupt, GraphBubbleUp):
-        yield sse_event("thread", serialize_thread(runtime, thread_id))
+        thread = serialize_thread(runtime, thread_id, graph)
+        pending = thread.get("interrupt")
+        if pending is not None:
+            yield sse_event("approval", pending)
+        yield sse_event("thread", thread)
     except Exception as exc:
         detail = str(exc).strip() or "chat stream failed"
         yield sse_event("error", {"detail": detail})

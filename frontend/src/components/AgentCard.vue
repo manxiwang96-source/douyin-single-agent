@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
 import { fetchAuthBlob } from "../api/threads";
-import { formatDateTime, type AgentCard } from "../lib/plaza";
+import { formatDateTime, plazaCardTypeClass, type AgentCard } from "../lib/plaza";
 
 const props = defineProps<{ card: AgentCard }>();
 const emit = defineEmits<{
@@ -42,7 +42,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <article class="agent-card">
+  <article class="agent-card" :class="plazaCardTypeClass(card.template_code)">
     <button class="agent-card-main" type="button" @click="emit('click', card.agent_instance_id)">
       <div class="agent-card-head">
         <img v-if="avatarSrc" class="agent-avatar" :src="avatarSrc" alt="" />

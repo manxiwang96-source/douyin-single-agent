@@ -54,6 +54,13 @@ def test_live_discover_leads_true_send_writes_workflow_run():
     assert recorded.inputs["platform"] == "douyin"
     assert recorded.inputs["limit"] == 20
     assert recorded.inputs["channels"] == "comment,message"
+    assert recorded.inputs["channel_comment"] is True
+    assert recorded.inputs["channel_message"] is True
+    assert recorded.inputs["channel_like"] is False
+    assert recorded.inputs["channel_collect"] is False
+    assert recorded.inputs["max_comments"] == "10"
+    assert recorded.inputs["reply_limit"] == "1"
+    assert recorded.inputs["message_limit"] == "1"
     assert recorded.inputs["account"] == account
     assert recorded.inputs["video_id"] == video_id
     assert "keyword" not in recorded.inputs

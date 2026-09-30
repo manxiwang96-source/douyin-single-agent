@@ -5,15 +5,21 @@ import { fetchAuthBlob } from "../api/threads";
 import { fileToDataUrl } from "../lib/avatar";
 import { apiErrorMessage } from "../lib/errors";
 import { INTRO_MAX, TITLE_MAX, validateIntro, validateTitle } from "../lib/title";
-import { DOUYIN_TEMPLATE as TEMPLATE, type AgentCard } from "../lib/plaza";
+import {
+  CUSTOM_TEMPLATE,
+  DOUYIN_TEMPLATE as TEMPLATE,
+  type AgentCard,
+  type CreatedAgent,
+} from "../lib/plaza";
 
 const props = defineProps<{
   open: boolean;
   card?: AgentCard | null;
 }>();
-const emit = defineEmits<{ close: []; created: []; saved: [] }>();
+const emit = defineEmits<{ close: []; created: [result: CreatedAgent]; saved: [] }>();
 
 const step = ref<"template" | "profile">("template");
+const selectedTemplate = ref(TEMPLATE.template_code);
 const title = ref("");
 const intro = ref("");
 const avatar = ref("");
@@ -72,6 +78,7 @@ watch(
       return;
     }
     step.value = "template";
+    selectedTemplate.value = TEMPLATE.template_code;
     title.value = "";
     intro.value = "";
     revokePreview();
@@ -80,7 +87,8 @@ watch(
   { immediate: true },
 );
 
-function chooseTemplate() {
+function chooseTemplate(templateCode = selectedTemplate.value) {
+  selectedTemplate.value = templateCode;
   step.value = "profile";
   error.value = "";
 }
@@ -113,8 +121,14 @@ async function submit() {
       await patchAgentInstance(props.card.agent_instance_id, fields);
       emit("saved");
     } else {
-      await createAgentInstance(nextTitle, nextIntro, avatar.value || null);
-      emit("created");
+      const created =
+        selectedTemplate.value === TEMPLATE.template_code
+          ? await createAgentInstance(nextTitle, nextIntro, avatar.value || null)
+          : await createAgentInstance(nextTitle, nextIntro, avatar.value || null, selectedTemplate.value);
+      emit("created", {
+        agent_instance_id: String(created?.agent_instance_id || ""),
+        template_code: String(created?.template_code || selectedTemplate.value),
+      });
     }
     emit("close");
   } catch (err) {
@@ -135,15 +149,26 @@ onUnmounted(revokePreview);
         <button class="agent-icon-btn" type="button" aria-label="关闭" @click="emit('close')">×</button>
       </div>
 
-      <button
-        v-if="step === 'template'"
-        class="agent-template is-selected"
-        type="button"
-        @click="chooseTemplate"
-      >
-        <strong>{{ TEMPLATE.title }}</strong>
-        <p class="agent-subtitle">{{ TEMPLATE.description }}</p>
-      </button>
+      <div v-if="step === 'template'" class="agent-template-grid">
+        <button
+          class="agent-template"
+          :class="{ 'is-selected': selectedTemplate === TEMPLATE.template_code }"
+          type="button"
+          @click="chooseTemplate(TEMPLATE.template_code)"
+        >
+          <strong>{{ TEMPLATE.title }}</strong>
+          <p class="agent-subtitle">{{ TEMPLATE.description }}</p>
+        </button>
+        <button
+          class="agent-template"
+          :class="{ 'is-selected': selectedTemplate === CUSTOM_TEMPLATE.template_code }"
+          type="button"
+          @click="chooseTemplate(CUSTOM_TEMPLATE.template_code)"
+        >
+          <strong>{{ CUSTOM_TEMPLATE.title }}</strong>
+          <p class="agent-subtitle">{{ CUSTOM_TEMPLATE.description }}</p>
+        </button>
+      </div>
 
       <form v-else @submit.prevent="submit">
         <div class="agent-profile">

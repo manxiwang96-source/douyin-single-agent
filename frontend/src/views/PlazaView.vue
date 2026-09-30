@@ -6,7 +6,13 @@ import { archiveAgentInstance, listAgentInstances, openAgentInstance } from "../
 import AgentCard from "../components/AgentCard.vue";
 import CreateAgentModal from "../components/CreateAgentModal.vue";
 import { apiErrorMessage } from "../lib/errors";
-import { filterCards, mapPlazaCards, type AgentCard as Card } from "../lib/plaza";
+import {
+  filterCards,
+  isCustomTemplateCode,
+  mapPlazaCards,
+  type AgentCard as Card,
+  type CreatedAgent,
+} from "../lib/plaza";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
@@ -50,11 +56,24 @@ function closeModal() {
 }
 
 function startEdit(id: string) {
-  editingCard.value = findCard(id);
-  if (!editingCard.value) {
+  const card = findCard(id);
+  if (!card) {
     return;
   }
+  if (isCustomTemplateCode(card.template_code) && router.hasRoute("agent-config")) {
+    router.push({ name: "agent-config", params: { agentInstanceId: id } });
+    return;
+  }
+  editingCard.value = card;
   modalOpen.value = true;
+}
+
+async function onCreated(result?: CreatedAgent) {
+  if (result && isCustomTemplateCode(result.template_code) && result.agent_instance_id && router.hasRoute("agent-config")) {
+    await router.push({ name: "agent-config", params: { agentInstanceId: result.agent_instance_id } });
+    return;
+  }
+  await loadCards();
 }
 
 function startArchive(id: string) {
@@ -118,7 +137,7 @@ onMounted(loadCards);
       <header class="agent-topbar">
         <div>
           <h1 class="agent-title">我的智能体</h1>
-          <p class="agent-subtitle">一人可创建多个运营助手实例</p>
+          <p class="agent-subtitle">可创建运营助手或自定义智能体</p>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <input v-model="query" class="agent-search" placeholder="搜索名称或简介" />
@@ -139,7 +158,7 @@ onMounted(loadCards);
         />
       </div>
     </div>
-    <CreateAgentModal :open="modalOpen" :card="editingCard" @close="closeModal" @created="loadCards" @saved="loadCards" />
+    <CreateAgentModal :open="modalOpen" :card="editingCard" @close="closeModal" @created="onCreated" @saved="loadCards" />
     <div v-if="archiveCard" class="agent-modal-mask agent-archive-mask" @click.self="cancelArchive">
       <div class="agent-modal agent-modal-sm" role="dialog" aria-modal="true">
         <div class="agent-modal-head">

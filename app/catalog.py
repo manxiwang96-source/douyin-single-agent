@@ -31,6 +31,16 @@ class AgentCatalog:
     tools: tuple[ToolCatalog, ...]
 
 
+CUSTOM_CATALOG = AgentCatalog(
+    template_code="custom",
+    display_name="自定义智能体",
+    capability_description="按用户配置的提示词、知识库、Skill、工具和工作流运行。默认仅启用当前时间工具。",
+    development_notes="custom 实例不继承运营助手工作流；所有额外 Skill、脚本和工具均需显式配置并按独立审批策略执行。",
+    agent_mode="single",
+    workflows=(),
+    tools=(ToolCatalog(name="get_current_datetime", display_name="当前时间", user_facing_summary="获取当前日期和时间。"),),
+)
+
 DOUYIN_OPS_CATALOG = AgentCatalog(
     template_code="douyin_ops",
     display_name="运营助手",
@@ -61,6 +71,7 @@ DOUYIN_OPS_CATALOG = AgentCatalog(
 AGENT_CATALOG: Mapping[str, AgentCatalog] = MappingProxyType(
     {
         "douyin_ops": DOUYIN_OPS_CATALOG,
+        "custom": CUSTOM_CATALOG,
     }
 )
 

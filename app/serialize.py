@@ -72,9 +72,10 @@ def api_messages_from_state(values: dict[str, Any]) -> list[dict[str, Any]]:
     return bubbles
 
 
-def serialize_thread(runtime, thread_id: str) -> dict[str, Any]:
+def serialize_thread(runtime, thread_id: str, graph=None) -> dict[str, Any]:
+    graph = graph or runtime.graph
     config = {"configurable": {"thread_id": thread_id}}
-    snapshot = runtime.graph.get_state(config)
+    snapshot = graph.get_state(config)
     values = snapshot.values or {}
     pending = interrupt_payload(snapshot)
     status = "interrupted" if pending else "idle"
@@ -86,6 +87,7 @@ def serialize_thread(runtime, thread_id: str) -> dict[str, Any]:
         "interrupt": None
         if pending is None
         else {
+            **pending,
             "type": pending.get("type", "review_media"),
             "tool": pending.get("tool"),
             "prompt": pending.get("prompt"),

@@ -146,6 +146,20 @@ def test_trimmed_title_is_stored(repo):
     assert instance.title == "助手D"
 
 
+
+def test_thread_persists_selected_config_version(repo):
+    user, instance = _user_and_instance(repo, "thread-version")
+    config_version_id = uuid4()
+    thread = repo.create_app_thread(
+        user.user_id, instance.agent_instance_id,
+        config_version_id=config_version_id,
+    )
+    assert thread.config_version_id == config_version_id
+    assert thread.thread_kind == "official"
+    assert repo.get_app_thread(thread.thread_id).config_version_id == config_version_id
+    assert repo.get_app_thread(thread.thread_id).thread_kind == "official"
+
+
 def test_media_asset_requires_owned_instance(repo):
     user, instance = _user_and_instance(repo, "media-owner")
     record = repo.add_media_asset(
@@ -216,3 +230,11 @@ def test_workflow_run_and_engage_projection(repo):
     assert repo.list_engage_videos(user.user_id, instance.agent_instance_id)[0].id == video.id
     assert repo.list_engage_comments(user.user_id, instance.agent_instance_id)[0].id == comment.id
     assert repo.list_engage_dms(user.user_id, instance.agent_instance_id)[0].id == dm.id
+
+
+def test_thread_kind_defaults_to_official(repo):
+    user, instance = _user_and_instance(repo, "thread-kind")
+    official = repo.create_app_thread(user.user_id, instance.agent_instance_id)
+    assert official.thread_kind == "official"
+    debug = repo.create_app_thread(user.user_id, instance.agent_instance_id, thread_kind="debug")
+    assert debug.thread_kind == "debug"

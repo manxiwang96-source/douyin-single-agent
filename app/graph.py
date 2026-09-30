@@ -12,13 +12,45 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.utils.runnable import RunnableCallable
 
+from app.knowledge import kb_namespace, search_kb as search_instance_kb
 from app.message_metadata import message_metadata, new_message_metadata, with_message_metadata
-from app.prompts import SYSTEM_PROMPT
+from app.prompts import CUSTOM_SAFETY_PREFIX, SYSTEM_PROMPT
+from app.repository import CUSTOM_TEMPLATE
 
 DEFAULT_ALLOWED_WORKFLOW_CODES = ["douyin-lead-discovery"]
 SCHEDULER_USER_ID = "00000000-0000-4000-8000-000000000001"
 SCHEDULER_AGENT_INSTANCE_ID = "00000000-0000-4000-8000-000000000002"
 DEFAULT_ASSISTANT_TIMEZONE = "Asia/Shanghai"
+
+
+def graph_cache_key(allowed_tool_codes, config_version_id=None) -> tuple[str, tuple[str, ...]]:
+    version = str(config_version_id) if config_version_id else ""
+    tools = tuple(sorted({str(item) for item in allowed_tool_codes}))
+    return (version, tools)
+
+
+def compose_system_prompt(
+    *,
+    template_code: str = "",
+    system_prompt: str = "",
+    time_context: str = "",
+    skill_instructions: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    instance_prompt = str(system_prompt or "")
+    skills = [str(item) for item in (skill_instructions or []) if str(item)]
+    if template_code == CUSTOM_TEMPLATE:
+        content = CUSTOM_SAFETY_PREFIX
+        if instance_prompt:
+            content += ("\n\n" if not content.endswith("\n") else "\n") + instance_prompt
+    else:
+        content = SYSTEM_PROMPT
+        if instance_prompt:
+            content += "\n\n" + instance_prompt
+    if time_context:
+        content += "\n\n" + time_context
+    if skills:
+        content += "\n\n" + "\n\n---\n\n".join(skills)
+    return content
 
 
 def build_invoke_config(
@@ -28,6 +60,12 @@ def build_invoke_config(
     agent_instance_id,
     allowed_workflow_codes: list[str] | None = None,
     assistant_timezone: str = DEFAULT_ASSISTANT_TIMEZONE,
+    config_version_id=None,
+    system_prompt: str = "",
+    skill_instructions: list[str] | None = None,
+    enabled_tool_codes: list[str] | None = None,
+    knowledge_sources: list[str] | None = None,
+    template_code: str = "",
 ) -> dict[str, Any]:
     return {
         "configurable": {
@@ -35,6 +73,12 @@ def build_invoke_config(
             "user_id": str(user_id),
             "agent_instance_id": str(agent_instance_id),
             "assistant_timezone": assistant_timezone,
+            "config_version_id": str(config_version_id) if config_version_id else "",
+            "system_prompt": system_prompt or "",
+            "skill_instructions": list(skill_instructions or []),
+            "enabled_tool_codes": list(enabled_tool_codes) if enabled_tool_codes is not None else None,
+            "knowledge_sources": list(knowledge_sources) if knowledge_sources is not None else None,
+            "template_code": template_code or "",
             "allowed_workflow_codes": list(
                 allowed_workflow_codes
                 if allowed_workflow_codes is not None
@@ -96,21 +140,18 @@ def _retrieve_instance_knowledge(state: AgentState, config: RunnableConfig | Non
             break
     if not query:
         return ""
-    namespace = (str(user_id), str(agent_instance_id), "kb")
+    allowed_sources = configurable.get("knowledge_sources")
     try:
-        hits = store.search(namespace, query=query, limit=4)
+        hits = search_instance_kb(
+            store,
+            query=query,
+            k=4,
+            namespace=kb_namespace(user_id, agent_instance_id),
+            allowed_sources=allowed_sources,
+        )
     except Exception:
         return ""
-    texts: list[str] = []
-    for hit in hits or []:
-        score = getattr(hit, "score", None)
-        if score is not None and score <= 0:
-            continue
-        value = getattr(hit, "value", None) or {}
-        text = value.get("text")
-        if text:
-            texts.append(str(text))
-    return "\n\n".join(texts)
+    return "\n\n".join(str(item.get("text") or "") for item in hits if item.get("text"))
 
 
 def _server_now(config: RunnableConfig | None) -> tuple[datetime, str]:
@@ -139,11 +180,28 @@ def _time_context(state: AgentState, config: RunnableConfig | None) -> str:
     return "\n".join(lines)
 
 
-def build_graph(*, llm, tools, checkpointer, store=None):
+def build_graph(*, llm, tools, checkpointer, store=None, allowed_tool_codes=None):
+    active_tools = list(tools) if allowed_tool_codes is None else [
+        item for item in tools if getattr(item, "name", "") in set(allowed_tool_codes)
+    ]
+
+    def _bound_tools(config: RunnableConfig | None = None):
+        enabled = _configurable(config).get("enabled_tool_codes")
+        if enabled is None:
+            return active_tools
+        allowed = {str(item) for item in enabled}
+        return [item for item in active_tools if getattr(item, "name", "") in allowed]
+
     def _chat_payload(state: AgentState, config: RunnableConfig | None = None):
-        bound = llm.bind_tools(tools, parallel_tool_calls=False)
+        bound = llm.bind_tools(_bound_tools(config), parallel_tool_calls=False)
+        configurable = _configurable(config)
         payload = [
-            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + _time_context(state, config)),
+            SystemMessage(content=compose_system_prompt(
+                template_code=str(configurable.get("template_code") or ""),
+                system_prompt=str(configurable.get("system_prompt") or ""),
+                time_context=_time_context(state, config),
+                skill_instructions=list(configurable.get("skill_instructions") or []),
+            )),
             *state["messages"],
         ]
         retrieved = _retrieve_instance_knowledge(state, config)
@@ -194,7 +252,7 @@ def build_graph(*, llm, tools, checkpointer, store=None):
 
     builder = StateGraph(AgentState)
     builder.add_node("chatbot", RunnableCallable(chatbot, achatbot, name="chatbot"))
-    builder.add_node("tools", ToolNode(tools, handle_tool_errors=False))
+    builder.add_node("tools", ToolNode(active_tools, handle_tool_errors=False))
     builder.add_conditional_edges("chatbot", tools_condition)
     builder.add_edge("tools", "chatbot")
     builder.add_edge(START, "chatbot")
@@ -207,6 +265,8 @@ def interrupt_payload(snapshot) -> dict[str, Any] | None:
         interrupts.extend(getattr(task, "interrupts", ()) or ())
     for item in interrupts:
         value = getattr(item, "value", item)
-        if isinstance(value, dict) and value.get("type") == "review_media":
+        if isinstance(value, dict) and value.get("type") in {
+            "review_media", "review_skill", "review_skill_script", "review_tool",
+        }:
             return value
     return None

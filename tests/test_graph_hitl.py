@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import UUID, uuid4
 
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
@@ -115,4 +116,81 @@ def test_ainvoke_uses_async_chatbot_path(runtime, llm):
         )
     )
     assert result["messages"][-1].content == "你好"
+
+
+def _email_graph_config(thread_id: str):
+    return graph_config(thread_id, config_version_id=str(uuid4()))
+
+
+def _tool_scope(config):
+    values = config["configurable"]
+    return {
+        "user_id": UUID(str(values["user_id"])),
+        "agent_instance_id": UUID(str(values["agent_instance_id"])),
+        "config_version_id": UUID(str(values["config_version_id"])),
+        "thread_id": str(values["thread_id"]),
+        "approval_kind": "tool",
+        "resource_code": "send_email",
+    }
+
+
+def test_send_email_interrupt_approve_calls_client(runtime, llm, email_client):
+    llm.responses = [
+        ai_tool("send_email", {"subject": "hello", "body": "world"}),
+        ai_text("已发送邮件"),
+    ]
+    config = _email_graph_config("email-approve")
+    runtime.graph.invoke(
+        {"messages": [HumanMessage(content="发封邮件")]},
+        config,
+    )
+    pending = interrupt_payload(runtime.graph.get_state(config))
+    assert pending is not None
+    assert pending["type"] == "review_tool"
+    assert pending["tool"] == "send_email"
+    assert pending["subject"] == "hello"
+    assert pending["options"] == ["approve_once", "approve_session", "deny"]
+    assert email_client.sends == []
+
+    result = runtime.graph.invoke(Command(resume={"action": "approve_once"}), config)
+    assert email_client.sends
+    assert email_client.sends[0]["subject"] == "hello"
+    assert email_client.sends[0]["body"] == "world"
+    assert result["messages"][-1].content == "已发送邮件"
+    assert not runtime.approval_manager.ensure(**_tool_scope(config))
+
+
+def test_send_email_deny_does_not_call_client(runtime, llm, email_client):
+    llm.responses = [
+        ai_tool("send_email", {"subject": "skip me", "body": "nope"}),
+        ai_text("已拒绝发送"),
+    ]
+    config = _email_graph_config("email-deny")
+    runtime.graph.invoke(
+        {"messages": [HumanMessage(content="发邮件")]},
+        config,
+    )
+    result = runtime.graph.invoke(Command(resume={"action": "deny"}), config)
+    assert email_client.sends == []
+    assert interrupt_payload(runtime.graph.get_state(config)) is None
+    assert "tool approval denied" in result["messages"][-2].content
+    assert result["messages"][-1].content == "已拒绝发送"
+
+
+def test_send_email_session_approval_allows_second_send(runtime, llm, email_client):
+    llm.responses = [
+        ai_tool("send_email", {"subject": "one", "body": "a"}),
+        ai_text("已发送1"),
+        ai_tool("send_email", {"subject": "two", "body": "b"}),
+        ai_text("已发送2"),
+    ]
+    config = _email_graph_config("email-session")
+    runtime.graph.invoke({"messages": [HumanMessage(content="发第一封")]}, config)
+    runtime.graph.invoke(Command(resume={"action": "approve_session"}), config)
+    assert len(email_client.sends) == 1
+    result = runtime.graph.invoke({"messages": [HumanMessage(content="发第二封")]}, config)
+    assert interrupt_payload(runtime.graph.get_state(config)) is None
+    assert [item["subject"] for item in email_client.sends] == ["one", "two"]
+    assert result["messages"][-1].content == "已发送2"
+    assert runtime.approval_manager.ensure(**_tool_scope(config))
 

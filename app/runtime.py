@@ -10,14 +10,18 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.config import Settings, project_root
 from app.dify_client import DifyClient
 from app.embeddings import make_openai_embeddings
-from app.graph import build_graph, interrupt_payload
+from app.graph import build_graph, graph_cache_key, interrupt_payload
 from app.image_client import ImageClient
 from app.knowledge import index_knowledge_dir, make_store
 from app.mcp_client import McpFactsProvider, StaticFactsProvider, default_test_facts, load_mcp_tools
 from app.media_paths import ensure_media_dirs, resolve_media_root
 from app.postgres import make_postgres_memory
 from app.repository import InMemoryBusinessRepository
+from app.approvals import ApprovalManager, PostgresApprovalRepository
+from app.skill_repository import PostgresSkillRepository
+from app.skills import InMemorySkillRepository, SkillService, make_search_provider
 from app.tools import build_tools
+from app.tool_audit import InMemoryToolAuditRepository, PostgresToolAuditRepository
 from app.video_client import VideoClient
 
 __all__ = [
@@ -49,6 +53,28 @@ class AppRuntime:
     pg_pool: Any = None
     business_repo: Any = None
     dify_client: Any = None
+    skill_repository: Any = None
+    skill_service: Any = None
+    approval_manager: Any = None
+    llm: Any = None
+    tools: list[Any] | None = None
+    _graph_cache: dict[tuple[str, tuple[str, ...]], Any] | None = None
+    tool_audit_repository: Any = None
+
+    def graph_for_tool_codes(self, allowed_tool_codes=None, config_version_id=None):
+        """Build/cache a scoped graph while preserving the existing topology."""
+        if allowed_tool_codes is None:
+            return self.graph
+        key = graph_cache_key(allowed_tool_codes, config_version_id)
+        if self._graph_cache is None:
+            self._graph_cache = {}
+        if key not in self._graph_cache:
+            self._graph_cache[key] = build_graph(
+                llm=self.llm, tools=list(self.tools or []),
+                checkpointer=self.checkpointer, store=self.memory_store,
+                allowed_tool_codes=key[1],
+            )
+        return self._graph_cache[key]
 
 
 def make_llm(settings: Settings):
@@ -80,6 +106,13 @@ def build_runtime(
     pg_pool=None,
     business_repo=None,
     dify_client=None,
+    skill_repository=None,
+    skill_service=None,
+    approval_manager=None,
+    tool_audit_repository=None,
+    clock=None,
+    weather_client=None,
+    weather_provider=None,
 ) -> AppRuntime:
     settings = settings or Settings()
     root = project_root()
@@ -126,11 +159,42 @@ def build_runtime(
         email_client = SmtpEmailClient(settings)
     dify_client = dify_client or DifyClient(settings)
 
+    if skill_repository is None:
+        skill_repository = PostgresSkillRepository(pg_pool) if production and pg_pool is not None else InMemorySkillRepository()
+    if tool_audit_repository is None:
+        tool_audit_repository = PostgresToolAuditRepository(pg_pool) if production and pg_pool is not None else InMemoryToolAuditRepository()
+
+    if approval_manager is None:
+        approval_repository = PostgresApprovalRepository(pg_pool) if production and pg_pool is not None else None
+        approval_manager = ApprovalManager(approval_repository)
+
+    if skill_service is None:
+        quarantine_root = Path(settings.skill_quarantine_dir)
+        if not quarantine_root.is_absolute():
+            quarantine_root = root / quarantine_root
+        skill_service = SkillService(
+            skill_repository,
+            search_provider=make_search_provider(settings),
+            quarantine_root=quarantine_root,
+        )
+
     if facts_provider is None:
         if extra_tools:
             facts_provider = McpFactsProvider(extra_tools, default_city=settings.assistant_city)
         else:
             facts_provider = StaticFactsProvider(default_test_facts(settings.assistant_city))
+
+    if not production and weather_provider is None and weather_client is None:
+        fallback_city = settings.assistant_city or "广州"
+
+        def weather_provider(city: str = "") -> dict[str, Any]:
+            target = (city or fallback_city).strip() or fallback_city
+            facts = default_test_facts(target)
+            return {
+                "city": target or facts.city,
+                "weather": facts.weather,
+                "temperature_c": facts.temperature_c,
+            }
 
     tools = build_tools(
         store=store,
@@ -143,6 +207,12 @@ def build_runtime(
         extra_tools=extra_tools,
         business_repo=business_repo,
         dify_client=dify_client,
+        skill_service=skill_service,
+        approval_manager=approval_manager,
+        tool_audit_repository=tool_audit_repository,
+        clock=clock,
+        weather_client=weather_client,
+        weather_provider=weather_provider,
     )
     graph = build_graph(
         llm=llm,
@@ -164,6 +234,11 @@ def build_runtime(
         pg_pool=pg_pool,
         business_repo=business_repo,
         dify_client=dify_client,
+        skill_repository=skill_repository,
+        skill_service=skill_service,
+        approval_manager=approval_manager,
+        tool_audit_repository=tool_audit_repository,
+        llm=llm, tools=list(tools), _graph_cache={},
     )
 
 
@@ -180,6 +255,13 @@ def build_test_runtime(
     facts_provider=None,
     memory_store=None,
     dify_client=None,
+    skill_repository=None,
+    skill_service=None,
+    approval_manager=None,
+    tool_audit_repository=None,
+    clock=None,
+    weather_client=None,
+    weather_provider=None,
 ) -> AppRuntime:
     return build_runtime(
         settings,
@@ -195,4 +277,11 @@ def build_test_runtime(
         email_client=email_client,
         facts_provider=facts_provider,
         dify_client=dify_client,
+        skill_repository=skill_repository,
+        skill_service=skill_service,
+        approval_manager=approval_manager,
+        tool_audit_repository=tool_audit_repository,
+        clock=clock,
+        weather_client=weather_client,
+        weather_provider=weather_provider,
     )

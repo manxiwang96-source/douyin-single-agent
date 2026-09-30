@@ -6,8 +6,8 @@ export async function listAgentInstances(): Promise<{ items: Array<Record<string
   return response.data;
 }
 
-export async function createAgentInstance(title: string, intro: string, avatar?: string | null) {
-  const response = await http.post("/v1/agent-instances", createInstancePayload(title, intro, avatar));
+export async function createAgentInstance(title: string, intro: string, avatar?: string | null, templateCode = "douyin_ops") {
+  const response = await http.post("/v1/agent-instances", createInstancePayload(title, intro, avatar, templateCode));
   return response.data;
 }
 

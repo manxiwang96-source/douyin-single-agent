@@ -188,3 +188,14 @@ export async function fetchAuthBlob(url: string): Promise<Blob> {
   const response = await http.get(url, { responseType: "blob" });
   return response.data;
 }
+
+export async function openDebugThread(agentInstanceId: string): Promise<{
+  agent_instance_id: string;
+  thread_id: string;
+  thread_kind: string;
+  config_version_id: string | null;
+  updated_at?: string;
+}> {
+  const response = await http.post(`/v1/agent-instances/${agentInstanceId}/debug-open`);
+  return response.data;
+}

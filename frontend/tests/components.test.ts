@@ -43,6 +43,7 @@ const sampleCard: Card = {
   title: "助手A",
   intro: "日常运营",
   avatar_url: "/v1/agent-instances/id-1/avatar",
+  template_code: "douyin_ops",
   agent_mode: "single",
   agent_mode_label: "单智能体模式",
   created_at: "2026-01-01T00:00:00",
@@ -70,6 +71,11 @@ async function mountPlaza() {
       { path: "/login", name: "login", component: { template: "<div>login</div>" } },
       { path: "/agents", name: "plaza", component: PlazaView },
       {
+        path: "/agents/:agentInstanceId/edit",
+        name: "agent-config",
+        component: { template: "<div>config</div>" },
+      },
+      {
         path: "/agents/:agentInstanceId",
         name: "chat",
         component: { template: "<div>chat</div>" },
@@ -95,6 +101,7 @@ describe("vue components", () => {
           title: "助手A",
           intro: "日常运营",
           avatar_url: "/v1/agent-instances/id-1/avatar",
+          template_code: "douyin_ops",
           agent_mode: "single",
           created_at: "2026-01-01T00:00:00",
           updated_at: "2026-01-02T00:00:00",
@@ -118,8 +125,11 @@ describe("vue components", () => {
 
   it("create modal stays on two steps without changing route", async () => {
     const wrapper = mount(CreateAgentModal, { props: { open: true } });
+    const templates = wrapper.findAll(".agent-template");
     expect(wrapper.text()).toContain("运营助手");
     expect(wrapper.text()).not.toContain("对话式智能体");
+    expect(templates[0].classes()).toContain("is-selected");
+    expect(templates[1].classes()).not.toContain("is-selected");
     await wrapper.get(".agent-template").trigger("click");
     expect(wrapper.text()).toContain("名称*");
     expect(wrapper.text()).toContain("简介*");
@@ -172,6 +182,7 @@ describe("vue components", () => {
 
   it("card footer buttons do not emit open click", async () => {
     const wrapper = mount(AgentCard, { props: { card: sampleCard } });
+    expect(wrapper.get("article").classes()).toContain("agent-card-douyin");
     await wrapper.get(".agent-card-edit").trigger("click");
     await wrapper.get(".agent-card-archive").trigger("click");
     expect(wrapper.emitted("edit")?.[0]).toEqual(["id-1"]);
@@ -198,6 +209,107 @@ describe("vue components", () => {
     expect(archiveAgentInstance).toHaveBeenCalledWith("id-1");
     expect(openAgentInstance).not.toHaveBeenCalled();
     expect(listAgentInstances).toHaveBeenCalledTimes(2);
+  });
+
+  it("plaza copy allows both agent types", async () => {
+    const wrapper = await mountPlaza();
+    expect(wrapper.text()).toContain("可创建运营助手或自定义智能体");
+    expect(wrapper.text()).not.toContain("一人可创建多个运营助手实例");
+    expect(wrapper.get("article").classes()).toContain("agent-card-douyin");
+  });
+
+  it("creating a custom agent emits the result and enters the config page", async () => {
+    vi.mocked(createAgentInstance).mockResolvedValue({
+      agent_instance_id: "id-custom",
+      template_code: "custom",
+    });
+    const wrapper = await mountPlaza();
+    await wrapper.get(".agent-create-btn").trigger("click");
+    const templates = wrapper.findAll(".agent-template");
+    expect(templates[0].classes()).toContain("is-selected");
+    await templates[1].trigger("click");
+    await wrapper.get(".agent-field input").setValue("自定义A");
+    await wrapper.get(".agent-field textarea").setValue("专属配置");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createAgentInstance).toHaveBeenCalledWith("自定义A", "专属配置", null, "custom");
+    expect(wrapper.vm.$router.currentRoute.value.name).toBe("agent-config");
+    expect(wrapper.vm.$router.currentRoute.value.params).toEqual({ agentInstanceId: "id-custom" });
+    expect(listAgentInstances).toHaveBeenCalledTimes(1);
+  });
+
+  it("creating an ops assistant stays on the plaza and refreshes cards", async () => {
+    vi.mocked(createAgentInstance).mockResolvedValue({
+      agent_instance_id: "id-2",
+      template_code: "douyin_ops",
+    });
+    const wrapper = await mountPlaza();
+    await wrapper.get(".agent-create-btn").trigger("click");
+    await wrapper.get(".agent-template").trigger("click");
+    await wrapper.get(".agent-field input").setValue("助手B");
+    await wrapper.get(".agent-field textarea").setValue("运营规划");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createAgentInstance).toHaveBeenCalledWith("助手B", "运营规划", null);
+    expect(wrapper.vm.$router.currentRoute.value.name).toBe("plaza");
+    expect(listAgentInstances).toHaveBeenCalledTimes(2);
+  });
+
+  it("editing a custom card opens the config page", async () => {
+    vi.mocked(listAgentInstances).mockResolvedValue({
+      items: [
+        {
+          agent_instance_id: "id-custom",
+          title: "自定义A",
+          intro: "专属配置",
+          template_code: "custom",
+          agent_mode: "single",
+        },
+      ],
+    });
+    const wrapper = await mountPlaza();
+    expect(wrapper.get("article").classes()).toContain("agent-card-custom");
+    await wrapper.get(".agent-card-edit").trigger("click");
+    await flushPromises();
+    expect(wrapper.vm.$router.currentRoute.value.name).toBe("agent-config");
+    expect(wrapper.vm.$router.currentRoute.value.params).toEqual({ agentInstanceId: "id-custom" });
+    expect(wrapper.find(".agent-modal").exists()).toBe(false);
+  });
+
+  it("editing an ops assistant opens the patch modal without changing route", async () => {
+    const wrapper = await mountPlaza();
+    await wrapper.get(".agent-card-edit").trigger("click");
+    await flushPromises();
+    expect(wrapper.vm.$router.currentRoute.value.name).toBe("plaza");
+    expect(wrapper.text()).toContain("编辑智能体");
+    expect(wrapper.find("form").exists()).toBe(true);
+  });
+
+  it("clicking a card still opens official chat", async () => {
+    const wrapper = await mountPlaza();
+    await wrapper.get(".agent-card-main").trigger("click");
+    await flushPromises();
+    expect(openAgentInstance).toHaveBeenCalledWith("id-1");
+    expect(wrapper.vm.$router.currentRoute.value.name).toBe("chat");
+    expect(wrapper.vm.$router.currentRoute.value.query).toEqual({ thread_id: "thread-1" });
+  });
+
+  it("create modal emits created payload for custom agents", async () => {
+    vi.mocked(createAgentInstance).mockResolvedValue({
+      agent_instance_id: "id-custom",
+      template_code: "custom",
+    });
+    const wrapper = mount(CreateAgentModal, { props: { open: true } });
+    await wrapper.findAll(".agent-template")[1].trigger("click");
+    await wrapper.get(".agent-field input").setValue("自定义A");
+    await wrapper.get(".agent-field textarea").setValue("专属配置");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createAgentInstance).toHaveBeenCalledWith("自定义A", "专属配置", null, "custom");
+    expect(wrapper.emitted("created")?.[0][0]).toEqual({
+      agent_instance_id: "id-custom",
+      template_code: "custom",
+    });
   });
 
   it("sidebar renders catalog fields and no model", () => {
@@ -271,6 +383,60 @@ describe("vue components", () => {
     });
     await wrapper.get("button.agent-btn-ghost").trigger("click");
     expect(wrapper.emitted("skip")).toBeTruthy();
+    expect(wrapper.text()).toContain("生成前需要人工审核");
+    expect(wrapper.get("[data-hitl-kind]").attributes("data-hitl-kind")).toBe("media");
+  });
+
+  it("renders independent copy for import/skill/script/tool approvals", async () => {
+    const cases = [
+      { kind: "import", heading: "Skill 导入审批", forbidden: ["真实发送", "生成前需要人工审核"] },
+      { kind: "skill", heading: "Skill 使用审批", forbidden: ["真实发送", "生成前需要人工审核"] },
+      { kind: "script", heading: "Skill 脚本审批", forbidden: ["真实发送", "生成前需要人工审核"] },
+      { kind: "tool", tool: "run_skill_script", heading: "工具执行审批", forbidden: ["真实发送", "Skill 使用审批"] },
+    ] as const;
+    for (const item of cases) {
+      const wrapper = mount(HitlCard, {
+        props: {
+          visible: true,
+          kind: item.kind,
+          tool: "tool" in item ? item.tool : undefined,
+          prompt: "",
+          params: {},
+        },
+      });
+      expect(wrapper.get("[data-hitl-kind]").attributes("data-hitl-kind")).toBe(item.kind);
+      expect(wrapper.text()).toContain(item.heading);
+      expect(wrapper.text()).toContain("批准");
+      expect(wrapper.text()).toContain("拒绝");
+      expect(wrapper.text()).not.toContain("Approve");
+      for (const phrase of item.forbidden) {
+        expect(wrapper.text()).not.toContain(phrase);
+      }
+      await wrapper.get("button.agent-btn").trigger("click");
+      expect(wrapper.emitted("approve")).toBeTruthy();
+      await wrapper.get("button.agent-btn-ghost").trigger("click");
+      expect(wrapper.emitted("reject")).toBeTruthy();
+      expect(wrapper.emitted("skip")).toBeUndefined();
+      wrapper.unmount();
+    }
+  });
+
+  it("shows send_email as a tool approval instead of skill wording", () => {
+    const wrapper = mount(HitlCard, {
+      props: {
+        visible: true,
+        kind: "tool",
+        tool: "send_email",
+        prompt: "",
+        params: {},
+        reason: "发送邮件需要独立工具审批。",
+      },
+    });
+    expect(wrapper.get("[data-hitl-kind]").attributes("data-hitl-kind")).toBe("tool");
+    expect(wrapper.text()).toContain("工具审批：发送邮件");
+    expect(wrapper.text()).toContain("发送邮件需要独立工具审批");
+    expect(wrapper.text()).not.toContain("真实发送");
+    expect(wrapper.text()).not.toContain("Skill 使用审批");
   });
   it("renders the current-task panel above the catalog", () => {
     const sidebar = sidebarView({

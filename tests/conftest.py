@@ -57,7 +57,7 @@ def settings() -> Settings:
         dify_lead_app_id="douyin-lead-discovery",
         douyin_http_base_url="",
         douyin_http_api_token="",
-        dify_timeout_s=300,
+        dify_timeout_s=900,
         dify_live_enabled=False,
         smtp_host="smtp.example.test",
         smtp_port=465,

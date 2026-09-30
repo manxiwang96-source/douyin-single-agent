@@ -200,6 +200,78 @@ export function sidebarView(payload: Record<string, unknown> | null | undefined)
   };
 }
 
+export type ChatWelcome = {
+  welcomeMessage: string;
+  exampleQuestions: string[];
+};
+
+export const EMPTY_CHAT_HINT = "发送一条消息开始对话";
+
+export function emptyChatWelcome(): ChatWelcome {
+  return { welcomeMessage: "", exampleQuestions: [] };
+}
+
+function normalizeExampleQuestions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const questions: string[] = [];
+  for (const item of raw) {
+    const text = String(item ?? "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    questions.push(text);
+  }
+  return questions;
+}
+
+function welcomeFields(config: Record<string, unknown>): ChatWelcome {
+  return {
+    welcomeMessage: String(config.welcome_message || "").trim(),
+    exampleQuestions: normalizeExampleQuestions(config.example_questions),
+  };
+}
+
+function configsFromPayload(payload: unknown): Array<Record<string, unknown>> {
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  }
+  const data = payload as Record<string, unknown>;
+  if (Array.isArray(data.items)) {
+    return data.items.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  }
+  return [data];
+}
+
+export function publishedChatWelcome(payload: unknown): ChatWelcome {
+  const configs = configsFromPayload(payload);
+  if (!configs.length) return emptyChatWelcome();
+  const published = configs
+    .filter((item) => String(item.status || "") === "published")
+    .sort((left, right) => Number(right.version_no || 0) - Number(left.version_no || 0));
+  if (published.length) return welcomeFields(published[0]);
+  const only = configs[0];
+  if (
+    configs.length === 1 &&
+    !("status" in only) &&
+    ("welcome_message" in only || "example_questions" in only)
+  ) {
+    return welcomeFields(only);
+  }
+  return emptyChatWelcome();
+}
+
+export function shouldShowOfficialWelcome(options: {
+  threadKind?: string | null;
+  messageCount: number;
+  hitlVisible?: boolean;
+}): boolean {
+  if (String(options.threadKind || "official") === "debug") return false;
+  if (options.messageCount > 0) return false;
+  if (options.hitlVisible) return false;
+  return true;
+}
+
 export function approveResumePayload(prompt: string, params: Record<string, unknown>): Record<string, unknown> {
   return { action: "approve", prompt, params };
 }
@@ -231,6 +303,22 @@ export type TaskProgress = {
 
 export function emptyTaskProgress(): TaskProgress {
   return { round_id: null, phase: "idle", steps: [] };
+}
+
+export function currentActivityLabel(progress: TaskProgress | null | undefined): string {
+  let runningParent = "";
+  let runningChild = "";
+  for (const step of progress?.steps || []) {
+    for (const child of step.children || []) {
+      if (child.status === "running" && child.label) {
+        runningChild = child.label;
+      }
+    }
+    if (step.status === "running" && step.label) {
+      runningParent = step.label;
+    }
+  }
+  return runningChild || runningParent || PENDING_REPLY_TEXT;
 }
 
 export function localThinkingProgress(roundId: string): TaskProgress {

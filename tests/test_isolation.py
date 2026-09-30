@@ -4,6 +4,7 @@ from uuid import UUID
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.graph import graph_cache_key
 from app.knowledge import kb_namespace, profile_namespace
 from tests.fakes import TINY_PNG, ai_text, ai_tool
 from tests.graph_helpers import graph_config
@@ -22,6 +23,91 @@ def test_graph_nodes_remain_chatbot_and_tools(runtime):
     assert "tools" in nodes
     assert "discover_leads" not in nodes
     assert "review_media" not in nodes
+
+
+def _tool_names(graph):
+    tool_node = graph.get_graph().nodes["tools"].data
+    return set(tool_node._tools_by_name)
+
+
+def _node_names(graph):
+    return set(graph.get_graph().nodes)
+
+
+def _edge_pairs(graph):
+    return {(edge.source, edge.target) for edge in graph.get_graph().edges}
+
+
+def test_graph_cache_key_includes_tool_set_and_config_version():
+    assert graph_cache_key(["discover_leads", "get_current_datetime"], None) == (
+        "",
+        ("discover_leads", "get_current_datetime"),
+    )
+    assert graph_cache_key(["get_current_datetime"], "") == ("", ("get_current_datetime",))
+    assert graph_cache_key(["get_current_datetime"], "cfg-1") == (
+        "cfg-1",
+        ("get_current_datetime",),
+    )
+    assert graph_cache_key(["get_current_datetime"], None) != graph_cache_key(
+        ["get_current_datetime"], "cfg-1"
+    )
+
+
+def test_custom_instances_with_different_tools_do_not_share_graph_cache(runtime):
+    custom_a = runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id="custom-a"
+    )
+    custom_b = runtime.graph_for_tool_codes(
+        ["get_current_datetime", "discover_leads"], config_version_id="custom-b"
+    )
+    assert custom_a is not custom_b
+    assert custom_a is runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id="custom-a"
+    )
+    assert "discover_leads" not in _tool_names(custom_a)
+    assert "discover_leads" in _tool_names(custom_b)
+    assert _tool_names(custom_a) == {"get_current_datetime"}
+    key_a = graph_cache_key(["get_current_datetime"], "custom-a")
+    key_b = graph_cache_key(["get_current_datetime", "discover_leads"], "custom-b")
+    assert runtime._graph_cache[key_a] is custom_a
+    assert runtime._graph_cache[key_b] is custom_b
+
+
+def test_same_tools_different_config_version_do_not_share_graph_cache(runtime):
+    graph_v1 = runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id="cfg-v1"
+    )
+    graph_v2 = runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id="cfg-v2"
+    )
+    graph_missing = runtime.graph_for_tool_codes(["get_current_datetime"])
+    assert graph_v1 is not graph_v2
+    assert graph_v1 is not graph_missing
+    assert graph_missing is runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id=""
+    )
+
+
+def test_scoped_and_douyin_graphs_keep_chatbot_tools_topology(runtime):
+    custom = runtime.graph_for_tool_codes(
+        ["get_current_datetime"], config_version_id="custom-topo"
+    )
+    douyin = runtime.graph_for_tool_codes(
+        ["get_current_datetime", "discover_leads"],
+        config_version_id="douyin-published",
+    )
+    for graph in (runtime.graph, custom, douyin):
+        nodes = _node_names(graph)
+        edges = _edge_pairs(graph)
+        assert "chatbot" in nodes
+        assert "tools" in nodes
+        assert "discover_leads" not in nodes
+        assert "review_media" not in nodes
+        assert ("__start__", "chatbot") in edges
+        assert ("tools", "chatbot") in edges
+        assert any(source == "chatbot" and target == "tools" for source, target in edges)
+    assert custom is not douyin
+    assert douyin is not runtime.graph
 
 
 def test_invoke_config_carries_owner_and_bindings(runtime, llm):
@@ -127,3 +213,29 @@ def test_http_media_is_isolated_and_recorded(runtime, llm, image_client):
     assert forbidden.status_code in {403, 404}
     anon = make_client(runtime)
     assert anon.get(url).status_code == 401
+
+
+def test_scoped_graph_hallucinated_discover_leads_does_not_call_dify(runtime, llm, dify_client):
+    graph = runtime.graph_for_tool_codes(
+        ["get_current_datetime"],
+        config_version_id="no-leads",
+    )
+    llm.responses = [
+        ai_tool("discover_leads", {"platform": "douyin", "account": "demo", "keyword": "x"}),
+        ai_text("unused"),
+    ]
+    config = graph_config(
+        "hallucinated-leads",
+        enabled_tool_codes=["get_current_datetime"],
+        template_code="custom",
+        allowed_workflow_codes=[],
+    )
+    try:
+        graph.invoke({"messages": [HumanMessage(content="find leads")]}, config)
+    except Exception:
+        pass
+    assert dify_client.calls == []
+    names = {getattr(tool, "name", "") for tool in (llm.bound_tools or [])}
+    assert "discover_leads" not in names
+    tool_node = graph.get_graph().nodes["tools"].data
+    assert "discover_leads" not in set(tool_node._tools_by_name)

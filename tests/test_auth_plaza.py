@@ -117,9 +117,16 @@ def test_open_does_not_change_updated_at_and_reuses_thread(runtime):
     created = create_and_open(client, title="agent-open")
     updated_at = created["updated_at"]
     thread_id = created["thread_id"]
+    assert created["config_version_id"]
+    versions = client.get(f"/v1/agent-instances/{created['agent_instance_id']}/config/versions")
+    published = [item for item in versions.json()["items"] if item["status"] == "published"]
+    assert published
+    assert created["config_version_id"] == published[0]["config_version_id"]
     again = client.post(f"/v1/agent-instances/{created['agent_instance_id']}/open")
     assert again.status_code == 200
+    assert again.status_code != 409
     assert again.json()["thread_id"] == thread_id
+    assert again.json()["config_version_id"] == created["config_version_id"]
     card = client.get("/v1/agent-instances").json()["items"][0]
     assert card["updated_at"] == updated_at
 

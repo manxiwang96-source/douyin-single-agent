@@ -7,6 +7,8 @@ from typing import Any, Callable, Protocol, Sequence
 from uuid import UUID, uuid4
 
 DOUYIN_OPS_TEMPLATE = "douyin_ops"
+CUSTOM_TEMPLATE = "custom"
+SUPPORTED_TEMPLATES = frozenset({DOUYIN_OPS_TEMPLATE, CUSTOM_TEMPLATE})
 DEFAULT_WORKFLOW_CODE = "douyin-lead-discovery"
 TITLE_WHITESPACE = re.compile(r"\s")
 
@@ -28,6 +30,8 @@ JOB_RUN_STATUSES = frozenset(
 KNOWLEDGE_SOURCES = frozenset({"seeded_demo", "user_upload"})
 KNOWLEDGE_STATUSES = frozenset({"uploaded", "indexing", "ready", "failed", "archived"})
 THREAD_STATUSES = frozenset({"active", "interrupted", "closed", "archived"})
+THREAD_KINDS = frozenset({"debug", "official"})
+DEFAULT_THREAD_KIND = "official"
 MEDIA_KINDS = frozenset({"image", "video"})
 MEDIA_STORAGE_STATUSES = frozenset({"stored", "offloaded", "expired", "missing"})
 ACCOUNT_STATUSES = frozenset({"active", "paused", "needs_login"})
@@ -93,7 +97,7 @@ class DuplicateLoginError(RepositoryError):
 
 
 class UnsupportedTemplateError(RepositoryError):
-    """v1 only accepts douyin_ops."""
+    """Template code is outside the supported agent templates."""
 
 
 class NotFoundError(RepositoryError):
@@ -201,10 +205,12 @@ class ThreadRecord:
     thread_id: str
     user_id: UUID
     agent_instance_id: UUID
+    config_version_id: UUID | None
     title: str | None
     status: str
     created_at: datetime
     last_active_at: datetime
+    thread_kind: str = DEFAULT_THREAD_KIND
 
 
 @dataclass(frozen=True)
@@ -319,8 +325,8 @@ def normalize_agent_title(title: str) -> str:
 
 
 def require_template_code(template_code: str) -> str:
-    if template_code != DOUYIN_OPS_TEMPLATE:
-        raise UnsupportedTemplateError("v1 only accepts template_code=douyin_ops")
+    if template_code not in SUPPORTED_TEMPLATES:
+        raise UnsupportedTemplateError("template_code must be douyin_ops or custom")
     return template_code
 
 
@@ -468,6 +474,15 @@ class BusinessRepository(Protocol):
 
     def list_knowledge_documents(self, agent_instance_id: UUID) -> list[KnowledgeDocumentRecord]: ...
 
+    def update_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID, *,
+        title: str | None = None, status: str | None = None,
+    ) -> KnowledgeDocumentRecord: ...
+
+    def delete_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID,
+    ) -> KnowledgeDocumentRecord: ...
+
     def create_app_thread(
         self,
         user_id: UUID,
@@ -476,11 +491,15 @@ class BusinessRepository(Protocol):
         thread_id: str | None = None,
         title: str | None = None,
         status: str = "active",
+        config_version_id: UUID | None = None,
+        thread_kind: str = DEFAULT_THREAD_KIND,
     ) -> ThreadRecord: ...
 
     def get_app_thread(self, thread_id: str) -> ThreadRecord | None: ...
 
-    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None: ...
+    def get_latest_active_thread(
+        self, user_id: UUID, agent_instance_id: UUID, *, thread_kind: str | None = None,
+    ) -> ThreadRecord | None: ...
 
     def add_media_asset(
         self,
@@ -990,6 +1009,26 @@ class InMemoryBusinessRepository:
         ]
         return sorted(records, key=lambda item: item.created_at)
 
+    def update_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID, *,
+        title: str | None = None, status: str | None = None,
+    ) -> KnowledgeDocumentRecord:
+        record = self._documents.get(document_id)
+        if record is None or record.user_id != user_id or record.agent_instance_id != agent_instance_id:
+            raise NotFoundError(f"knowledge document not found: {document_id}")
+        if status is not None:
+            require_value(status, KNOWLEDGE_STATUSES, "knowledge status")
+        updated = replace(record, title=record.title if title is None else title.strip(), status=record.status if status is None else status)
+        if not updated.title:
+            raise RepositoryError("knowledge document title is required")
+        self._documents[document_id] = updated
+        return updated
+
+    def delete_knowledge_document(
+        self, document_id: UUID, user_id: UUID, agent_instance_id: UUID,
+    ) -> KnowledgeDocumentRecord:
+        return self.update_knowledge_document(document_id, user_id, agent_instance_id, status="archived")
+
     def create_app_thread(
         self,
         user_id: UUID,
@@ -998,18 +1037,23 @@ class InMemoryBusinessRepository:
         thread_id: str | None = None,
         title: str | None = None,
         status: str = "active",
+        config_version_id: UUID | None = None,
+        thread_kind: str = DEFAULT_THREAD_KIND,
     ) -> ThreadRecord:
         instance = self._require_instance(agent_instance_id, user_id)
         require_value(status, THREAD_STATUSES, "thread status")
+        require_value(thread_kind, THREAD_KINDS, "thread kind")
         now = utcnow()
         record = ThreadRecord(
             thread_id=thread_id or str(uuid4()),
             user_id=user_id,
             agent_instance_id=instance.agent_instance_id,
+            config_version_id=config_version_id,
             title=title,
             status=status,
             created_at=now,
             last_active_at=now,
+            thread_kind=thread_kind,
         )
         if record.thread_id in self._threads:
             raise RepositoryError(f"thread already exists: {record.thread_id}")
@@ -1019,13 +1063,18 @@ class InMemoryBusinessRepository:
     def get_app_thread(self, thread_id: str) -> ThreadRecord | None:
         return self._threads.get(thread_id)
 
-    def get_latest_active_thread(self, user_id: UUID, agent_instance_id: UUID) -> ThreadRecord | None:
+    def get_latest_active_thread(
+        self, user_id: UUID, agent_instance_id: UUID, *, thread_kind: str | None = None,
+    ) -> ThreadRecord | None:
+        if thread_kind is not None:
+            require_value(thread_kind, THREAD_KINDS, "thread kind")
         records = [
             item
             for item in self._threads.values()
             if item.user_id == user_id
             and item.agent_instance_id == agent_instance_id
             and item.status == "active"
+            and (thread_kind is None or item.thread_kind == thread_kind)
         ]
         if not records:
             return None

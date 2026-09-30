@@ -7,7 +7,7 @@ from datetime import timedelta
 from langchain_core.messages import HumanMessage
 
 from app.dify_client import DifyClient
-from app.leads import build_dify_inputs, normalize_lead_channels, run_discover_leads
+from app.leads import build_dify_inputs, normalize_lead_channels, normalize_max_comments, normalize_round_limit, run_discover_leads
 from app.repository import DEFAULT_WORKFLOW_CODE, utcnow
 from tests.fakes import FakeDifyClient, ai_text, ai_tool
 from tests.graph_helpers import graph_config
@@ -42,6 +42,13 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     assert inputs["keyword"] == "敏感肌"
     assert inputs["limit"] == 5
     assert inputs["channels"] == "comment,message"
+    assert inputs["channel_comment"] is True
+    assert inputs["channel_message"] is True
+    assert inputs["channel_like"] is False
+    assert inputs["channel_collect"] is False
+    assert inputs["max_comments"] == "10"
+    assert inputs["reply_limit"] == "1"
+    assert inputs["message_limit"] == "1"
     assert inputs["platform"] == "douyin"
     assert inputs["no_send"] is False
     assert inputs["auto_login"] is True
@@ -52,6 +59,13 @@ def test_build_dify_inputs_omits_empty_http_fields_and_forces_true_send(settings
     assert defaults["platform"] == "douyin"
     assert defaults["limit"] == 20
     assert defaults["channels"] == "comment,message"
+    assert defaults["channel_comment"] is True
+    assert defaults["channel_message"] is True
+    assert defaults["channel_like"] is False
+    assert defaults["channel_collect"] is False
+    assert defaults["max_comments"] == "10"
+    assert defaults["reply_limit"] == "1"
+    assert defaults["message_limit"] == "1"
     assert defaults["assess"] is True
     assert defaults["no_send"] is False
     assert defaults["video_id"] == "v9"
@@ -78,6 +92,31 @@ def test_normalize_lead_channels_maps_aliases_and_rejects_invalid():
     assert normalize_lead_channels("dm") == "message"
     assert normalize_lead_channels("message,comment") == "comment,message"
     assert normalize_lead_channels("foo,bar") == "comment,message"
+    assert normalize_lead_channels("评论、私信、点赞、收藏") == "comment,message,like,collect"
+    assert normalize_lead_channels("点赞") == "like"
+    assert normalize_lead_channels("like") == "like"
+    assert normalize_lead_channels("collect,favorite") == "collect"
+    assert normalize_lead_channels("comment,like") == "comment,like"
+
+
+def test_normalize_max_comments_defaults_and_clamps():
+    assert normalize_max_comments("") == "10"
+    assert normalize_max_comments(None) == "10"
+    assert normalize_max_comments("abc") == "10"
+    assert normalize_max_comments("30") == "30"
+    assert normalize_max_comments(30) == "30"
+    assert normalize_max_comments("0") == "1"
+    assert normalize_max_comments("100") == "50"
+
+
+def test_normalize_round_limit_defaults_and_clamps():
+    assert normalize_round_limit("") == "1"
+    assert normalize_round_limit(None) == "1"
+    assert normalize_round_limit("abc") == "1"
+    assert normalize_round_limit("5") == "5"
+    assert normalize_round_limit(5) == "5"
+    assert normalize_round_limit("0") == "1"
+    assert normalize_round_limit("20") == "10"
 
 
 def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_channels(settings):
@@ -93,6 +132,13 @@ def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_cha
     assert inputs["video_id"] == "7674838941266087168"
     assert "keyword" not in inputs
     assert inputs["channels"] == "comment,message"
+    assert inputs["channel_comment"] is True
+    assert inputs["channel_message"] is True
+    assert inputs["channel_like"] is False
+    assert inputs["channel_collect"] is False
+    assert inputs["max_comments"] == "10"
+    assert inputs["reply_limit"] == "1"
+    assert inputs["message_limit"] == "1"
     chinese = build_dify_inputs(
         settings,
         platform="douyin",
@@ -102,6 +148,76 @@ def test_build_dify_inputs_drops_keyword_when_video_id_present_and_sanitizes_cha
     )
     assert chinese["channels"] == "comment,message"
     assert "keyword" not in chinese
+
+
+def test_build_dify_inputs_dual_writes_like_and_collect_flags(settings):
+    all_on = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        channels="评论、私信、点赞、收藏",
+    )
+    assert all_on["channels"] == "comment,message,like,collect"
+    assert all_on["channel_comment"] is True
+    assert all_on["channel_message"] is True
+    assert all_on["channel_like"] is True
+    assert all_on["channel_collect"] is True
+    assert all_on["no_send"] is False
+    like_only = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        channels="点赞",
+    )
+    assert like_only["channels"] == "like"
+    assert like_only["channel_comment"] is False
+    assert like_only["channel_message"] is False
+    assert like_only["channel_like"] is True
+    assert like_only["channel_collect"] is False
+    comment_only = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        channels="comment",
+    )
+    assert comment_only["channels"] == "comment"
+    assert comment_only["channel_comment"] is True
+    assert comment_only["channel_message"] is False
+    message_only = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        channels="message",
+    )
+    assert message_only["channels"] == "message"
+    assert message_only["channel_comment"] is False
+    assert message_only["channel_message"] is True
+    invalid = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        channels="foo,bar",
+        max_comments="0",
+    )
+    assert invalid["channels"] == "comment,message"
+    assert invalid["channel_like"] is False
+    assert invalid["channel_collect"] is False
+    assert invalid["max_comments"] == "1"
+    comment_three = build_dify_inputs(
+        settings,
+        platform="douyin",
+        account="shop1",
+        video_id="v1",
+        reply_limit="3",
+    )
+    assert comment_three["reply_limit"] == "3"
+    assert comment_three["message_limit"] == "1"
+    assert comment_three["max_comments"] == "10"
 
 
 def test_build_dify_inputs_supports_xiaohongshu_url_and_optional_fields(settings):
@@ -117,6 +233,10 @@ def test_build_dify_inputs_supports_xiaohongshu_url_and_optional_fields(settings
     assert inputs["platform"] == "xiaohongshu"
     assert inputs["url"].endswith("note-1")
     assert inputs["max_comments"] == "30"
+    assert inputs["channel_comment"] is True
+    assert inputs["channel_message"] is True
+    assert inputs["channel_like"] is False
+    assert inputs["channel_collect"] is False
     assert inputs["select"] == "true"
     assert inputs["list_status"] == "sent"
 
@@ -860,6 +980,13 @@ def test_graph_tool_sanitizes_channels_and_omits_keyword_when_video_id_present(r
     assert inputs["video_id"] == "7674838941266087168"
     assert "keyword" not in inputs
     assert inputs["channels"] == "comment,message"
+    assert inputs["channel_comment"] is True
+    assert inputs["channel_message"] is True
+    assert inputs["channel_like"] is False
+    assert inputs["channel_collect"] is False
+    assert inputs["max_comments"] == "10"
+    assert inputs["reply_limit"] == "1"
+    assert inputs["message_limit"] == "1"
     assert inputs["no_send"] is False
     payload = json.loads(result["messages"][-2].content)
     assert payload["ok"] is True

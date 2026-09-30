@@ -12,7 +12,9 @@ const getAgentSidebar = vi.fn();
 const getThread = vi.fn();
 const postMessage = vi.fn();
 const resumeThread = vi.fn();
+const decideApproval = vi.fn();
 const fetchAuthBlob = vi.fn();
+const httpGet = vi.fn();
 const agentCss = readFileSync(resolve(process.cwd(), "src/styles/agent.css"), "utf-8");
 
 vi.mock("../src/api/agents", () => ({
@@ -26,6 +28,20 @@ vi.mock("../src/api/threads", () => ({
   resumeThread: (...args: unknown[]) => resumeThread(...args),
   fetchAuthBlob: (...args: unknown[]) => fetchAuthBlob(...args),
 }));
+
+vi.mock("../src/api/agentConfig", () => ({
+  decideApproval: (...args: unknown[]) => decideApproval(...args),
+}));
+
+vi.mock("../src/api/http", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/api/http")>();
+  return {
+    ...actual,
+    http: {
+      get: (...args: unknown[]) => httpGet(...args),
+    },
+  };
+});
 
 vi.mock("vue-router", async () => {
   const actual = await vi.importActual<typeof import("vue-router")>("vue-router");
@@ -52,12 +68,16 @@ describe("ChatView HITL", () => {
       agent_mode_label: "单智能体模式",
       knowledge_documents: [{ title: "faq", filename: "faq.md" }],
       workflows: [{ code: "douyin-lead-discovery", display_name: "线索发现与触达" }],
-      tools: [{ name: "discover_leads", display_name: "线索发现" }],
+      tools: [{ name: "discover_leads", display_name: "线索发现", user_facing_summary: "扫描并真实发送评论或私信" }],
     });
     fetchAuthBlob.mockRejectedValue(new Error("no avatar"));
+    httpGet.mockReset();
+    httpGet.mockResolvedValue({ data: { items: [] } });
     getThread.mockReset();
     postMessage.mockReset();
     resumeThread.mockReset();
+    decideApproval.mockReset();
+    decideApproval.mockResolvedValue({ approval_id: "appr-1", status: "approved" });
   });
 
   it("disables composer while thread is interrupted", async () => {
@@ -91,7 +111,7 @@ describe("ChatView HITL", () => {
     await wrapper.get("form.agent-composer").trigger("submit");
     await flushPromises();
 
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在思考");
     expect(agentCss).toMatch(/\.agent-message-content\s*\{[\s\S]*flex: 0 1 auto;[\s\S]*min-width: 0;/);
     expect(agentCss).toMatch(/\.agent-msg-row \.agent-bubble\s*\{[\s\S]*width: fit-content;[\s\S]*max-width: 100%;/);
     expect(agentCss).toMatch(/\.agent-bubble-pending\s*\{[\s\S]*min-width: 108px;[\s\S]*white-space: nowrap;/);
@@ -113,7 +133,7 @@ describe("ChatView HITL", () => {
     await wrapper.get("form.agent-composer").trigger("submit");
     await flushPromises();
     expect(wrapper.text()).toContain("你好");
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在思考");
     const userRow = wrapper.findAll(".agent-msg-row").find((row) => row.classes().includes("is-user"));
     expect(userRow?.find(".agent-msg-avatar").exists()).toBe(false);
     expect(wrapper.find(".agent-msg-row.is-pending .agent-msg-avatar").exists()).toBe(true);
@@ -307,7 +327,7 @@ describe("ChatView HITL", () => {
     await wrapper.get(".agent-composer textarea").setValue("你好");
     await wrapper.get("form.agent-composer").trigger("submit");
     await flushPromises();
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在思考");
     expect(wrapper.get(".agent-task-progress").text()).toContain("正在思考");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
     expect(wrapper.text()).not.toContain("POLL_WIPE");
@@ -331,7 +351,7 @@ describe("ChatView HITL", () => {
     await wrapper.get(".agent-composer textarea").setValue("你好");
     await wrapper.get("form.agent-composer").trigger("submit");
     await flushPromises();
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在思考");
     handlers?.onToken?.("你好");
     await flushPromises();
     expect(wrapper.get(".agent-bubble-pending").text()).toContain("你好");
@@ -389,13 +409,18 @@ describe("ChatView HITL", () => {
       ],
     });
     await flushPromises();
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("请求抖音");
+    expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("正在回复");
     expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("提前草稿");
     expect(wrapper.get(".agent-task-progress").text()).toContain("正在运行「线索发现与触达」");
     expect(wrapper.get(".agent-task-progress").text()).toContain("开始");
     expect(wrapper.get(".agent-task-progress").text()).toContain("请求抖音");
     expect(wrapper.get(".agent-task-progress").text()).toContain("失败节点");
     expect(wrapper.get(".agent-task-fail").text()).toBe("✕");
+    handlers?.onToken?.("找到线索");
+    await flushPromises();
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("找到线索");
+    expect(wrapper.get(".agent-bubble-pending").text()).not.toContain("请求抖音");
   });
 
   it("keeps task history after the final reply and resets only on the next user message", async () => {
@@ -430,7 +455,7 @@ describe("ChatView HITL", () => {
     await wrapper.get(".agent-composer textarea").setValue("下一问");
     await wrapper.get("form.agent-composer").trigger("submit");
     await flushPromises();
-    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在回复");
+    expect(wrapper.get(".agent-bubble-pending").text()).toContain("正在思考");
     expect(wrapper.get(".agent-task-progress").text()).toContain("正在思考");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("知识库检索");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("正在整理回复");
@@ -462,6 +487,12 @@ describe("ChatView HITL", () => {
     expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
     await wrapper.get(".agent-hitl button.agent-btn").trigger("click");
     await flushPromises();
+    expect(decideApproval).not.toHaveBeenCalled();
+    expect(resumeThread).toHaveBeenCalledWith(
+      "thread-1",
+      { action: "approve", prompt: "bottle", params: {} },
+      expect.any(Object),
+    );
     expect(wrapper.get(".agent-task-progress").text()).toContain("等待审核「生成图片」");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("暂无进行中的任务");
     expect(wrapper.findAll(".agent-task-steps li")).toHaveLength(2);
@@ -521,6 +552,222 @@ describe("ChatView HITL", () => {
     expect(wrapper.get(".agent-task-progress").text()).toContain("已跳过「生成图片」");
     expect(wrapper.get(".agent-task-progress").text()).not.toContain("正在整理回复");
     expect(wrapper.text()).toContain("已跳过生图");
+  });
+
+  it("keeps image HITL copy and Dify send hint while rendering four approval kinds", async () => {
+    const interrupts = [
+      {
+        type: "review_import",
+        approval_kind: "import",
+        approval_id: "appr-import",
+        resource_code: "ext-skill",
+        reason: "外部 Skill 导入需要独立导入审批。",
+        heading: "Skill 导入审批",
+        kind: "import",
+      },
+      {
+        type: "review_skill",
+        approval_kind: "skill",
+        approval_id: "appr-skill",
+        skill_name: "客服技能",
+        reason: "该 Skill 需要独立使用审批。",
+        heading: "Skill 使用审批",
+        kind: "skill",
+      },
+      {
+        type: "review_skill_script",
+        approval_kind: "script",
+        approval_id: "appr-script",
+        script_path: "main.py",
+        reason: "该 Skill 脚本需要独立脚本审批。",
+        heading: "Skill 脚本审批",
+        kind: "script",
+      },
+      {
+        type: "review_tool",
+        approval_kind: "tool",
+        approval_id: "appr-tool",
+        tool: "run_skill_script",
+        resource_code: "run_skill_script",
+        reason: "该工具需要独立执行审批。",
+        heading: "工具执行审批",
+        kind: "tool",
+      },
+    ];
+    for (const item of interrupts) {
+      decideApproval.mockClear();
+      resumeThread.mockReset();
+      resumeThread.mockResolvedValue({
+        status: "idle",
+        interrupt: null,
+        messages: [
+          { role: "user", content: `hitl-${item.kind}` },
+          { role: "assistant", content: "resumed-ok" },
+        ],
+      });
+      getThread.mockResolvedValue({
+        status: "interrupted",
+        interrupt: item,
+        messages: [{ role: "user", content: `hitl-${item.kind}` }],
+      });
+      const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+      await flushPromises();
+      expect(wrapper.get(".agent-sidebar").text()).toContain("扫描并真实发送评论或私信");
+      const card = wrapper.get(`[data-hitl-kind="${item.kind}"]`);
+      expect(card.text()).toContain(item.heading);
+      expect(card.text()).not.toContain("真实发送");
+      expect(card.text()).not.toContain("生成前需要人工审核");
+      expect(card.text()).not.toContain("Approve");
+      expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
+      const approveBtn = card.findAll("button").find((btn) => btn.text() === "批准");
+      expect(approveBtn).toBeTruthy();
+      await approveBtn!.trigger("click");
+      await flushPromises();
+      expect(decideApproval).toHaveBeenCalledWith(item.approval_id, true, "用户在正式聊天批准");
+      expect(resumeThread).toHaveBeenCalledWith("thread-1", { action: "approve_once" }, expect.any(Object));
+      expect(wrapper.text()).toContain("resumed-ok");
+      wrapper.unmount();
+    }
+  });
+
+  it("shows send_email as a tool approval instead of skill or Dify send copy", async () => {
+    getThread.mockResolvedValue({
+      status: "interrupted",
+      interrupt: {
+        type: "review_tool",
+        approval_kind: "tool",
+        approval_id: "appr-email",
+        tool: "send_email",
+        resource_code: "send_email",
+        reason: "发送邮件需要独立工具审批。",
+        subject: "hello",
+      },
+      messages: [{ role: "user", content: "发邮件" }],
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const card = wrapper.get('[data-hitl-kind="tool"]');
+    expect(card.text()).toContain("工具审批：发送邮件");
+    expect(card.text()).toContain("发送邮件需要独立工具审批");
+    expect(card.text()).not.toContain("真实发送");
+    expect(card.text()).not.toContain("Skill 使用审批");
+    expect(wrapper.get(".agent-sidebar").text()).toContain("扫描并真实发送评论或私信");
+    expect(wrapper.get(".agent-composer textarea").attributes("disabled")).toBeDefined();
+  });
+
+  it("rejects an official skill approval through decision and deny resume", async () => {
+    getThread.mockResolvedValue({
+      status: "interrupted",
+      interrupt: {
+        type: "review_skill",
+        approval_kind: "skill",
+        approval_id: "appr-deny",
+        skill_name: "客服技能",
+        reason: "该 Skill 需要独立使用审批。",
+      },
+      messages: [{ role: "user", content: "load skill" }],
+    });
+    resumeThread.mockResolvedValue({
+      status: "idle",
+      interrupt: null,
+      messages: [
+        { role: "user", content: "load skill" },
+        { role: "assistant", content: "denied-ok" },
+      ],
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const card = wrapper.get('[data-hitl-kind="skill"]');
+    expect(card.text()).toContain("Skill 使用审批");
+    expect(card.text()).not.toContain("真实发送");
+    expect(wrapper.get(".agent-sidebar").text()).toContain("扫描并真实发送评论或私信");
+    await card.findAll("button").find((btn) => btn.text() === "拒绝")!.trigger("click");
+    await flushPromises();
+    expect(decideApproval).toHaveBeenCalledWith("appr-deny", false, "用户在正式聊天拒绝");
+    expect(resumeThread).toHaveBeenCalledWith("thread-1", { action: "deny" }, expect.any(Object));
+    expect(wrapper.text()).toContain("denied-ok");
+  });
+
+  it("keeps video media HITL as Approve/Skip without four-kind copy", async () => {
+    getThread.mockResolvedValue({
+      status: "interrupted",
+      interrupt: {
+        type: "review_media",
+        tool: "generate_video",
+        prompt: "clip",
+        params: { duration: 4 },
+      },
+      messages: [{ role: "user", content: "生视频" }],
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const card = wrapper.get('[data-hitl-kind="media"]');
+    expect(card.text()).toContain("Approve");
+    expect(card.text()).toContain("Skip");
+    expect(card.text()).toContain("生成前需要人工审核");
+    expect(card.text()).not.toContain("Skill 使用审批");
+    expect(card.text()).not.toContain("批准");
+    expect(wrapper.get(".agent-sidebar").text()).toContain("扫描并真实发送评论或私信");
+  });
+
+
+  it("shows published welcome and sends a clicked example question", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [], thread_kind: "official" });
+    httpGet.mockResolvedValue({
+      data: {
+        items: [
+          {
+            status: "draft",
+            version_no: 2,
+            welcome_message: "draft-welcome",
+            example_questions: ["draft-q"],
+          },
+          {
+            status: "published",
+            version_no: 1,
+            welcome_message: "published-welcome",
+            example_questions: ["published-q"],
+          },
+        ],
+      },
+    });
+    postMessage.mockImplementation(() => new Promise(() => undefined));
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(httpGet).toHaveBeenCalledWith("/v1/agent-instances/id-1/config/versions");
+    expect(wrapper.get(".agent-empty").text()).toContain("published-welcome");
+    expect(wrapper.get(".agent-empty").text()).not.toContain("draft-welcome");
+    expect(wrapper.get("[data-example-question]").text()).toBe("published-q");
+    await wrapper.get("[data-example-question]").trigger("click");
+    await flushPromises();
+    expect(postMessage).toHaveBeenCalledWith("thread-1", "published-q", expect.any(String), expect.any(Object));
+    expect(wrapper.find(".agent-empty").exists()).toBe(false);
+  });
+
+  it("keeps the old empty hint when published welcome is missing", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [] });
+    httpGet.mockResolvedValue({
+      data: {
+        items: [{ status: "draft", welcome_message: "draft-welcome", example_questions: ["draft-q"] }],
+      },
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.get(".agent-empty").text()).toBe("\u53d1\u9001\u4e00\u6761\u6d88\u606f\u5f00\u59cb\u5bf9\u8bdd");
+    expect(wrapper.text()).not.toContain("draft-welcome");
+    expect(wrapper.find("[data-example-question]").exists()).toBe(false);
+  });
+
+  it("does not show published welcome on a debug thread", async () => {
+    getThread.mockResolvedValue({ status: "idle", interrupt: null, messages: [], thread_kind: "debug" });
+    httpGet.mockResolvedValue({
+      data: { items: [{ status: "published", welcome_message: "published-welcome", example_questions: ["published-q"] }] },
+    });
+    const wrapper = mount(ChatView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.get(".agent-empty").text()).toBe("\u53d1\u9001\u4e00\u6761\u6d88\u606f\u5f00\u59cb\u5bf9\u8bdd");
+    expect(wrapper.text()).not.toContain("published-welcome");
+    expect(wrapper.find("[data-example-question]").exists()).toBe(false);
   });
 
 });

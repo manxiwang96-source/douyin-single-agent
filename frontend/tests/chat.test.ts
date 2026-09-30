@@ -4,6 +4,8 @@ import {
   approveResumePayload,
   buildChatView,
   clearPendingDraft,
+  currentActivityLabel,
+  EMPTY_CHAT_HINT,
   markRequestMessage,
   mergeChatMessages,
   messageTime,
@@ -14,7 +16,9 @@ import {
   interruptCard,
   isSkippedProgress,
   localThinkingProgress,
+  publishedChatWelcome,
   shouldApplyTaskProgress,
+  shouldShowOfficialWelcome,
   sidebarView,
   skipResumePayload,
   threadProgress,
@@ -177,6 +181,59 @@ describe("task progress helpers", () => {
     ]);
   });
 
+  it("picks the last running Dify child, then running parent, then pending fallback", () => {
+    expect(currentActivityLabel(localThinkingProgress("client-1"))).toBe("正在思考");
+    expect(
+      currentActivityLabel({
+        round_id: "client-1",
+        phase: "running",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          {
+            id: "tool:discover_leads:c1",
+            kind: "tool",
+            tool: "discover_leads",
+            label: "正在运行「线索发现与触达」",
+            status: "running",
+            spin: true,
+          },
+        ],
+      }),
+    ).toBe("正在运行「线索发现与触达」");
+    expect(
+      currentActivityLabel({
+        round_id: "client-1",
+        phase: "running",
+        steps: [
+          {
+            id: "tool:discover_leads:c1",
+            kind: "tool",
+            tool: "discover_leads",
+            label: "正在运行「线索发现与触达」",
+            status: "running",
+            spin: true,
+            children: [
+              { id: "dify:n1:0", kind: "dify_node", tool: "discover_leads", label: "开始", status: "done", spin: false },
+              { id: "dify:n2:1", kind: "dify_node", tool: "discover_leads", label: "请求抖音", status: "running", spin: true },
+              { id: "dify:n3:2", kind: "dify_node", tool: "discover_leads", label: "评论触达", status: "waiting", spin: false },
+            ],
+          },
+        ],
+      }),
+    ).toBe("请求抖音");
+    expect(
+      currentActivityLabel({
+        round_id: "client-1",
+        phase: "composing",
+        steps: [
+          { id: "thinking", kind: "thinking", tool: null, label: "正在思考", status: "done", spin: false },
+          { id: "composing", kind: "composing", tool: null, label: "正在整理回复", status: "running", spin: true },
+        ],
+      }),
+    ).toBe("正在整理回复");
+    expect(currentActivityLabel(emptyTaskProgress())).toBe("正在回复");
+  });
+
   it("replaces the pending placeholder with tokens and restores it on running", () => {
     const pending = optimisticMessages("问", "client-1");
     const withToken = appendPendingToken(pending, "client-1", "你好");
@@ -264,5 +321,60 @@ describe("task progress helpers", () => {
         { activeRoundId: "client-1", skipFrozen: true },
       ),
     ).toBe(true);
+  });
+
+
+  it("picks published welcome and examples and ignores draft copy", () => {
+    const view = publishedChatWelcome({
+      items: [
+        {
+          status: "draft",
+          version_no: 2,
+          welcome_message: "draft-welcome",
+          example_questions: ["draft-q"],
+          system_prompt: "secret-prompt",
+        },
+        {
+          status: "published",
+          version_no: 1,
+          welcome_message: "  published-welcome  ",
+          example_questions: ["published-q", " ", "published-q"],
+          system_prompt: "secret-prompt",
+          model: "should-not-leak",
+        },
+      ],
+    });
+    expect(view).toEqual({ welcomeMessage: "published-welcome", exampleQuestions: ["published-q"] });
+    expect(Object.keys(view).sort()).toEqual(["exampleQuestions", "welcomeMessage"]);
+  });
+
+  it("keeps empty welcome when only draft config exists", () => {
+    expect(
+      publishedChatWelcome({
+        status: "draft",
+        welcome_message: "draft-welcome",
+        example_questions: ["draft-q"],
+      }),
+    ).toEqual({ welcomeMessage: "", exampleQuestions: [] });
+    expect(publishedChatWelcome({ items: [] })).toEqual({ welcomeMessage: "", exampleQuestions: [] });
+    expect(EMPTY_CHAT_HINT).toBe("\u53d1\u9001\u4e00\u6761\u6d88\u606f\u5f00\u59cb\u5bf9\u8bdd");
+  });
+
+  it("reads sidebar welcome fields without inventing copy", () => {
+    expect(
+      publishedChatWelcome({
+        title: "ops",
+        welcome_message: "sidebar-welcome",
+        example_questions: ["sidebar-q"],
+      }),
+    ).toEqual({ welcomeMessage: "sidebar-welcome", exampleQuestions: ["sidebar-q"] });
+  });
+
+  it("hides official welcome for debug threads or existing messages", () => {
+    expect(shouldShowOfficialWelcome({ threadKind: "official", messageCount: 0 })).toBe(true);
+    expect(shouldShowOfficialWelcome({ threadKind: undefined, messageCount: 0, hitlVisible: false })).toBe(true);
+    expect(shouldShowOfficialWelcome({ threadKind: "debug", messageCount: 0 })).toBe(false);
+    expect(shouldShowOfficialWelcome({ threadKind: "official", messageCount: 1 })).toBe(false);
+    expect(shouldShowOfficialWelcome({ threadKind: "official", messageCount: 0, hitlVisible: true })).toBe(false);
   });
 });

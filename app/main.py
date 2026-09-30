@@ -27,16 +27,20 @@ from app.avatars import AvatarError, avatar_root, resolve_avatar_file, save_avat
 from app.config import Settings
 from app.chat_sse import stream_chat_events
 from app.graph import build_invoke_config
+from app.knowledge import selected_document_filenames
 from app.job_control import JobAccessDenied, cancel_job_run, disable_job, parse_job_uuid
 from app.jobs import arun_hydrate, arun_morning_brief, acatch_up_jobs
 from app.media_paths import MediaPathError, safe_media_file
 from app.plaza import (
     create_agent_instance_for_user,
+    ensure_official_thread,
     instance_card,
     require_owned_instance,
     sidebar_payload,
 )
 from app.repository import (
+    CUSTOM_TEMPLATE,
+    DOUYIN_OPS_TEMPLATE,
     DuplicateLoginError,
     DuplicateTitleError,
     InvalidTitleError,
@@ -50,6 +54,10 @@ from app.repository import (
 )
 from app.runtime import AppRuntime, build_runtime
 from app.serialize import serialize_thread
+from app.skill_runtime import build_skill_runtime_context
+from app.approvals import APPROVAL_KINDS, APPROVAL_SCOPES, ApprovalScopeError
+from app.agent_config_routes import register_agent_config_routes
+from app.skill_routes import register_skill_routes
 from contextlib import asynccontextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -93,6 +101,30 @@ class AgentInstancePatchIn(BaseModel):
     title: str | None = None
     intro: str | None = None
     avatar: str | None = None
+
+
+class ApprovalRequestIn(BaseModel):
+    thread_id: str = Field(min_length=1)
+    config_version_id: str = Field(min_length=1)
+    approval_kind: str
+    resource_code: str = Field(min_length=1, max_length=200)
+    approval_scope: str = "once"
+
+
+class ApprovalDecisionIn(BaseModel):
+    approved: bool
+    reason: str = Field(default="", max_length=500)
+
+
+def _serialize_approval(record) -> dict[str, Any]:
+    data = dict(record.__dict__)
+    for key in ("approval_id", "user_id", "agent_instance_id", "config_version_id", "decided_by"):
+        if data.get(key) is not None:
+            data[key] = str(data[key])
+    for key in ("requested_at", "decided_at", "expires_at", "consumed_at"):
+        if data.get(key) is not None:
+            data[key] = data[key].isoformat()
+    return data
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -170,17 +202,60 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         thread = repo.get_app_thread(thread_id)
         if thread is None:
             raise _http_error(404, "thread not found")
-        bindings = repo.list_workflow_bindings(thread.agent_instance_id)
-        allowed = [item.workflow_code for item in bindings if item.enabled]
+        instance = repo.get_agent_instance(thread.agent_instance_id)
+        debug_thread = thread.thread_kind == "debug"
+        skill_context = build_skill_runtime_context(
+            runtime.skill_service,
+            user_id=thread.user_id,
+            agent_instance_id=thread.agent_instance_id,
+            prefer_draft=debug_thread,
+            approvals=runtime.approval_manager,
+            thread_id=thread_id,
+            config_version_id=None if debug_thread else thread.config_version_id,
+        )
+        runtime_tool_names = {
+            str(getattr(item, "name", ""))
+            for item in (runtime.tools or [])
+            if getattr(item, "name", "")
+        }
+        configured_tool_codes = list(skill_context.enabled_tool_codes)
+        effective_tool_codes = [code for code in configured_tool_codes if code in runtime_tool_names]
+        scope_records = runtime.approval_manager.repository.list_for_scope(
+            user_id=thread.user_id, agent_instance_id=thread.agent_instance_id,
+            config_version_id=skill_context.config_version_id, thread_id=thread_id,
+        )
+        tool_records = [item for item in scope_records if item.approval_kind == "tool"]
+        if tool_records:
+            effective_tool_codes = [
+                code for code in effective_tool_codes
+                if runtime.approval_manager.ensure(
+                    user_id=thread.user_id, agent_instance_id=thread.agent_instance_id,
+                    config_version_id=skill_context.config_version_id, thread_id=thread_id,
+                    approval_kind="tool", resource_code=code,
+                )
+            ]
+        scoped_graph = runtime.graph_for_tool_codes(
+            effective_tool_codes,
+            config_version_id=skill_context.config_version_id,
+        )
         config = build_invoke_config(
             thread_id=thread_id,
             user_id=thread.user_id,
             agent_instance_id=thread.agent_instance_id,
-            allowed_workflow_codes=allowed,
+            allowed_workflow_codes=list(skill_context.workflow_codes),
             assistant_timezone=runtime.settings.assistant_timezone,
+            config_version_id=skill_context.config_version_id,
+            system_prompt=skill_context.system_prompt,
+            skill_instructions=list(skill_context.skill_instructions),
+            enabled_tool_codes=effective_tool_codes,
+            knowledge_sources=selected_document_filenames(
+                repo.list_knowledge_documents(thread.agent_instance_id),
+                skill_context.knowledge_document_ids,
+            ),
+            template_code=instance.template_code if instance else "",
         )
         return EventSourceResponse(
-            stream_chat_events(runtime, thread_id, payload, config),
+            stream_chat_events(runtime, thread_id, payload, config, graph=scoped_graph),
             media_type="text/event-stream",
             ping=0,
         )
@@ -192,6 +267,100 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
     @app.get("/v1/config")
     def get_config() -> dict[str, Any]:
         return runtime.settings.public_config()
+
+    @app.get("/v1/agent-types")
+    def list_agent_types(user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:
+        del user
+        return {"items": [
+            {"template_code": DOUYIN_OPS_TEMPLATE, "name": "运营助手", "description": "保留现有抖音运营工作流和 Dify 能力。", "supports_custom_config": False},
+            {"template_code": CUSTOM_TEMPLATE, "name": "自定义智能体", "description": "按实例配置提示词、知识库、工具和 Skill。", "supports_custom_config": True},
+        ]}
+
+    register_agent_config_routes(app, runtime)
+    register_skill_routes(app, runtime)
+
+    @app.post("/v1/agent-instances/{agent_instance_id}/approvals", status_code=201)
+    def request_approval(
+        agent_instance_id: str, body: ApprovalRequestIn,
+        user: UserRecord = Depends(_auth_user),
+    ) -> dict[str, Any]:
+        instance = _owned_instance(user, agent_instance_id)
+        if body.approval_kind not in APPROVAL_KINDS:
+            raise _http_error(400, "unsupported approval kind")
+        if body.approval_scope not in APPROVAL_SCOPES:
+            raise _http_error(400, "unsupported approval scope")
+        _owned_thread(user, body.thread_id)
+        try:
+            config_id = UUID(body.config_version_id)
+        except ValueError as exc:
+            raise _http_error(400, "invalid config_version_id") from exc
+        try:
+            config = runtime.skill_service.repository.get_config(config_id)
+        except Exception as exc:
+            raise _http_error(404, "config version not found") from exc
+        if (config.get("user_id") != user.user_id
+                or config.get("agent_instance_id") != instance.agent_instance_id):
+            raise _http_error(403, "config version forbidden")
+        thread = repo.get_app_thread(body.thread_id)
+        if thread is None or thread.agent_instance_id != instance.agent_instance_id:
+            raise _http_error(403, "thread does not belong to agent instance")
+        try:
+            record = runtime.approval_manager.require_or_request(
+                user_id=user.user_id, agent_instance_id=instance.agent_instance_id,
+                config_version_id=config_id, thread_id=body.thread_id,
+                approval_kind=body.approval_kind, resource_code=body.resource_code.strip(),
+                approval_scope=body.approval_scope,
+            )
+        except ValueError as exc:
+            raise _http_error(400, str(exc)) from exc
+        if record is None:
+            records = runtime.approval_manager.repository.list_for_scope(
+                user_id=user.user_id, agent_instance_id=instance.agent_instance_id,
+                config_version_id=config_id, thread_id=body.thread_id,
+            )
+            record = next(item for item in records
+                          if item.approval_kind == body.approval_kind
+                          and item.resource_code == body.resource_code.strip())
+        return _serialize_approval(record)
+
+    @app.post("/v1/approvals/{approval_id}/decision")
+    def decide_approval(
+        approval_id: str, body: ApprovalDecisionIn,
+        user: UserRecord = Depends(_auth_user),
+    ) -> dict[str, Any]:
+        try:
+            record = runtime.approval_manager.repository.get(UUID(approval_id))
+        except (ValueError, AttributeError):
+            record = None
+        if record is None or record.user_id != user.user_id:
+            raise _http_error(404, "approval not found")
+        try:
+            updated = runtime.approval_manager.repository.decide(
+                record.approval_id, user_id=user.user_id,
+                approved=body.approved, reason=body.reason,
+            )
+        except ApprovalScopeError as exc:
+            raise _http_error(404, "approval not found") from exc
+        return _serialize_approval(updated)
+
+    @app.get("/v1/agent-instances/{agent_instance_id}/approvals")
+    def list_approvals(
+        agent_instance_id: str, config_version_id: str | None = None,
+        thread_id: str | None = None, user: UserRecord = Depends(_auth_user),
+    ) -> dict[str, Any]:
+        instance = _owned_instance(user, agent_instance_id)
+        parsed_config = None
+        if config_version_id is not None:
+            try:
+                parsed_config = UUID(config_version_id)
+            except ValueError as exc:
+                raise _http_error(400, "invalid config_version_id") from exc
+        records = runtime.approval_manager.repository.list_for_agent(
+            user_id=user.user_id, agent_instance_id=instance.agent_instance_id,
+            config_version_id=parsed_config, thread_id=thread_id,
+        )
+        return {"items": [_serialize_approval(item) for item in records]}
+
 
     @app.post("/v1/auth/register", status_code=201)
     def register(body: RegisterIn) -> dict[str, Any]:
@@ -319,15 +488,14 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
     def open_instance(agent_instance_id: str, user: UserRecord = Depends(_auth_user)) -> dict[str, Any]:
         instance = _owned_instance(user, agent_instance_id)
         before = instance.updated_at
-        thread = repo.get_latest_active_thread(user.user_id, instance.agent_instance_id)
-        if thread is None:
-            thread = repo.create_app_thread(user.user_id, instance.agent_instance_id)
+        thread = ensure_official_thread(runtime, user, instance)
         after = repo.get_agent_instance(instance.agent_instance_id)
         if after is not None and after.updated_at != before:
             raise _http_error(500, "opening a conversation must not update the card")
         return {
             "agent_instance_id": str(instance.agent_instance_id),
             "thread_id": thread.thread_id,
+            "config_version_id": str(thread.config_version_id) if thread.config_version_id else None,
             "updated_at": after.updated_at.isoformat() if after else instance.updated_at.isoformat(),
         }
 
@@ -397,6 +565,14 @@ def create_app(runtime: AppRuntime | None = None) -> FastAPI:
         current = serialize_thread(runtime, thread_id)
         if current.get("status") != "interrupted":
             raise _http_error(409, "thread is not waiting for review")
+        pending = current.get("interrupt") or {}
+        options = pending.get("options") or []
+        if pending.get("type") == "review_media" and not options:
+            # Keep legacy persisted HITL payloads safe: media actions are a
+            # fixed server-side contract, never an arbitrary client string.
+            options = ["approve", "skip", "update", "cancel", "reject"]
+        if options and body.action not in options:
+            raise _http_error(400, "unsupported resume action for current approval")
         decision = {
             "action": body.action,
             "prompt": body.prompt,

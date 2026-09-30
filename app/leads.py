@@ -26,9 +26,20 @@ DEFAULT_LEAD_CHANNELS = "comment,message"
 DEFAULT_DOUYIN_HTTP_BASE_URL = "http://192.168.1.33:8765"
 CHANNEL_COMMENT = "comment"
 CHANNEL_MESSAGE = "message"
-ALLOWED_LEAD_CHANNEL_VALUES = frozenset(
-    {CHANNEL_COMMENT, CHANNEL_MESSAGE, DEFAULT_LEAD_CHANNELS}
+CHANNEL_LIKE = "like"
+CHANNEL_COLLECT = "collect"
+CANONICAL_CHANNEL_ORDER = (
+    CHANNEL_COMMENT,
+    CHANNEL_MESSAGE,
+    CHANNEL_LIKE,
+    CHANNEL_COLLECT,
 )
+DEFAULT_MAX_COMMENTS = 10
+MAX_COMMENTS_MIN = 1
+MAX_COMMENTS_MAX = 50
+DEFAULT_ROUND_LIMIT = 1
+ROUND_LIMIT_MIN = 1
+ROUND_LIMIT_MAX = 10
 _CHANNEL_TOKEN_ALIASES = {
     "comment": CHANNEL_COMMENT,
     "comments": CHANNEL_COMMENT,
@@ -38,6 +49,13 @@ _CHANNEL_TOKEN_ALIASES = {
     "dm": CHANNEL_MESSAGE,
     "dms": CHANNEL_MESSAGE,
     "私信": CHANNEL_MESSAGE,
+    "like": CHANNEL_LIKE,
+    "likes": CHANNEL_LIKE,
+    "点赞": CHANNEL_LIKE,
+    "collect": CHANNEL_COLLECT,
+    "favorite": CHANNEL_COLLECT,
+    "favourite": CHANNEL_COLLECT,
+    "收藏": CHANNEL_COLLECT,
 }
 
 
@@ -45,23 +63,41 @@ def normalize_lead_channels(channels: str = "") -> str:
     raw = str(channels or "").strip()
     if not raw:
         return DEFAULT_LEAD_CHANNELS
-    compact = raw.replace(" ", "")
-    if compact in ALLOWED_LEAD_CHANNEL_VALUES:
-        return compact
-    if compact == f"{CHANNEL_MESSAGE},{CHANNEL_COMMENT}":
-        return DEFAULT_LEAD_CHANNELS
-    found: list[str] = []
+    found: set[str] = set()
     for piece in re.split(r"[,，、/;；]+", raw):
         token = piece.strip()
         mapped = _CHANNEL_TOKEN_ALIASES.get(token.lower()) or _CHANNEL_TOKEN_ALIASES.get(token)
-        if mapped and mapped not in found:
-            found.append(mapped)
-    if CHANNEL_COMMENT in found and CHANNEL_MESSAGE in found:
+        if mapped:
+            found.add(mapped)
+    if not found:
         return DEFAULT_LEAD_CHANNELS
-    if len(found) == 1:
-        return found[0]
-    return DEFAULT_LEAD_CHANNELS
+    return ",".join(channel for channel in CANONICAL_CHANNEL_ORDER if channel in found)
 
+
+def normalize_max_comments(max_comments: str | int | None = "") -> str:
+    raw = str(max_comments if max_comments is not None else "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return str(DEFAULT_MAX_COMMENTS)
+    if value < MAX_COMMENTS_MIN:
+        value = MAX_COMMENTS_MIN
+    elif value > MAX_COMMENTS_MAX:
+        value = MAX_COMMENTS_MAX
+    return str(value)
+
+
+def normalize_round_limit(limit: str | int | None = "") -> str:
+    raw = str(limit if limit is not None else "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return str(DEFAULT_ROUND_LIMIT)
+    if value < ROUND_LIMIT_MIN:
+        value = ROUND_LIMIT_MIN
+    elif value > ROUND_LIMIT_MAX:
+        value = ROUND_LIMIT_MAX
+    return str(value)
 
 
 def json_tool_result(payload: dict[str, Any]) -> str:
@@ -79,9 +115,13 @@ def build_dify_inputs(
     limit: int | str | None = None,
     channels: str = "",
     max_comments: str = "",
+    reply_limit: str = "",
+    message_limit: str = "",
     select: str = "",
     list_status: str = "",
 ) -> dict[str, Any]:
+    channels = normalize_lead_channels(channels)
+    selected = set(channels.split(","))
     inputs: dict[str, Any] = {
         "account": account,
         "platform": platform,
@@ -89,7 +129,14 @@ def build_dify_inputs(
         "auto_login": True,
         "assess": True,
         "limit": DEFAULT_LEAD_LIMIT,
-        "channels": normalize_lead_channels(channels),
+        "channels": channels,
+        "channel_comment": CHANNEL_COMMENT in selected,
+        "channel_message": CHANNEL_MESSAGE in selected,
+        "channel_like": CHANNEL_LIKE in selected,
+        "channel_collect": CHANNEL_COLLECT in selected,
+        "max_comments": normalize_max_comments(max_comments),
+        "reply_limit": normalize_round_limit(reply_limit),
+        "message_limit": normalize_round_limit(message_limit),
     }
     if video_id:
         inputs["video_id"] = video_id
@@ -99,7 +146,7 @@ def build_dify_inputs(
         inputs["url"] = url
     if limit is not None and str(limit) != "":
         inputs["limit"] = limit
-    for key, value in (("max_comments", max_comments), ("select", select), ("list_status", list_status)):
+    for key, value in (("select", select), ("list_status", list_status)):
         if value not in (None, ""):
             inputs[key] = value
     base_url = (getattr(settings, "douyin_http_base_url", "") or "").strip()
@@ -426,6 +473,8 @@ def run_discover_leads(
     limit: int | str | None = None,
     channels: str = "",
     max_comments: str = "",
+    reply_limit: str = "",
+    message_limit: str = "",
     select: str = "",
     list_status: str = "",
 ) -> dict[str, Any]:
@@ -470,6 +519,8 @@ def run_discover_leads(
         limit=limit,
         channels=(channels or "").strip(),
         max_comments=(max_comments or "").strip(),
+        reply_limit=(reply_limit or "").strip(),
+        message_limit=(message_limit or "").strip(),
         select=(select or "").strip(),
         list_status=(list_status or "").strip(),
     )

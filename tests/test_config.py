@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.config import Settings, project_root
 from app.runtime import LLM_MAX_TOKENS, LLM_TIMEOUT_S, make_llm
+from app.skills import ConfiguredWebSearchProvider, MockSearchProvider, make_search_provider
 
 
 def test_cheapest_image_params_come_from_settings():
@@ -84,7 +85,7 @@ def test_assistant_defaults():
     assert settings.smtp_port == 465
     assert settings.smtp_ssl is True
     assert settings.scheduler_enabled is False
-    assert settings.dify_timeout_s == 300
+    assert settings.dify_timeout_s == 900
     assert settings.dify_live_enabled is False
     assert settings.dify_lead_app_id == "douyin-lead-discovery"
     assert settings.douyin_http_base_url == ""
@@ -175,7 +176,7 @@ def test_env_example_has_assistant_fields_without_secrets():
         "SMTP_FROM=",
         "SMTP_TO=",
         "CORS_ORIGINS=",
-        "DIFY_TIMEOUT_S=300",
+        "DIFY_TIMEOUT_S=900",
         "DIFY_LIVE_ENABLED=false",
     ]
     missing = [item for item in required if item not in text]
@@ -202,3 +203,31 @@ def test_make_llm_sets_timeout_and_max_tokens(settings):
     assert llm.max_tokens == LLM_MAX_TOKENS
     assert llm.request_timeout == LLM_TIMEOUT_S
     assert llm.max_retries == 1
+
+
+def test_skill_search_settings_are_server_only_and_select_mock_by_default():
+    settings = Settings(
+        _env_file=None,
+        external_skill_discovery_enabled=False,
+        web_search_provider="mock",
+        web_search_endpoint="https://search.example.test",
+        web_search_api_key="server-secret",
+        github_token="github-secret",
+    )
+    assert isinstance(make_search_provider(settings), MockSearchProvider)
+    public = settings.public_config()
+    assert public["external_skill_discovery_enabled"] is False
+    assert public["web_search_provider"] == "mock"
+    for secret in ("server-secret", "github-secret"):
+        assert secret not in repr(public)
+    assert "web_search_endpoint" not in public
+    assert "web_search_api_key" not in public
+    assert "github_token" not in public
+
+
+def test_disabled_real_search_provider_is_explainably_unavailable():
+    settings = Settings(_env_file=None, web_search_provider="internal", external_skill_discovery_enabled=False)
+    provider = make_search_provider(settings)
+    assert isinstance(provider, ConfiguredWebSearchProvider)
+    with pytest.raises(Exception, match="web search service is not configured"):
+        provider.search("skill")

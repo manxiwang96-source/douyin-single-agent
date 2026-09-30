@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     embedding_dims: int = 1024
 
     media_output_dir: str = "outputs"
+    skill_quarantine_dir: str = "data/skill-quarantine"
+    external_skill_discovery_enabled: bool = False
+    web_search_provider: str = "mock"
+    web_search_endpoint: str = ""
+    web_search_api_key: str = ""
+    github_token: str = ""
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     streamlit_api_base: str = "http://127.0.0.1:8000"
@@ -86,7 +92,7 @@ class Settings(BaseSettings):
     dify_lead_app_id: str = "douyin-lead-discovery"
     douyin_http_base_url: str = ""
     douyin_http_api_token: str = ""
-    dify_timeout_s: float = 300
+    dify_timeout_s: float = 900
     dify_live_enabled: bool = False
 
     @field_validator(
@@ -96,10 +102,16 @@ class Settings(BaseSettings):
         "streamlit_api_base",
         "dify_base_url",
         "douyin_http_base_url",
+        "web_search_endpoint",
     )
     @classmethod
     def strip_slash(cls, value: str) -> str:
         return (value or "").rstrip("/")
+
+    @field_validator("web_search_provider")
+    @classmethod
+    def normalize_web_search_provider(cls, value: str) -> str:
+        return (value or "mock").strip().lower() or "mock"
 
     @field_validator("image_provider")
     @classmethod
@@ -191,6 +203,8 @@ class Settings(BaseSettings):
             "video_size": self.video_size,
             "video_aspect_param": self.video_aspect_param,
             "media_output_dir": self.media_output_dir,
+            "external_skill_discovery_enabled": self.external_skill_discovery_enabled,
+            "web_search_provider": self.web_search_provider,
             "streamlit_api_base": self.streamlit_api_base,
             "assistant_city": self.assistant_city,
             "assistant_timezone": self.assistant_timezone,
